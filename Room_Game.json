@@ -1,0 +1,297 @@
+{
+  "id": 1773619769691.061,
+  "title": "Room Game",
+  "blocks": [
+    {
+      "id": "starting room",
+      "text": "You wake up in a room. You see 2 doors.",
+      "choices": [
+        {
+          "id": "1773613257867",
+          "txt": "Work Out",
+          "next": "Workout",
+          "giveVar": "Strength",
+          "giveAmt": 2,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "Strength",
+          "reqVal": 7,
+          "maxUses": 3,
+          "persistFlag": "",
+          "promptChar": "",
+          "op": "<",
+          "showUsage": false,
+          "lockedMsg": "You are TOOO STRONGGG!!!",
+          "reqMax": 6
+        },
+        {
+          "id": "1773613258782",
+          "txt": "Door A",
+          "next": "Office",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "Key",
+          "takeAmt": 1,
+          "reqVar": "Key",
+          "reqVal": 1,
+          "maxUses": 0,
+          "persistFlag": "Unlocked",
+          "promptChar": "",
+          "op": "=",
+          "lockedMsg": "Door is LOCKED. Find a Key",
+          "reqMin": 1
+        },
+        {
+          "id": "1773613259273",
+          "txt": "Door B",
+          "next": "Closet",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "Strength",
+          "reqVal": 6,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": "",
+          "op": "=",
+          "lockedMsg": "You are too weak to open this door.",
+          "reqMin": 6,
+          "reqMax": 99
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "Stranger",
+      "text": "Hello there friendo. Whats uppity up up",
+      "choices": [
+        {
+          "id": "1773613474633",
+          "txt": "Who are you?",
+          "next": "Stranger2",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "reqVal": 0,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": "NyarMar"
+        }
+      ]
+    },
+    {
+      "id": "Closet",
+      "text": "You see a dusty closet. ",
+      "choices": [
+        {
+          "id": "1773613519438",
+          "txt": "Investigate item",
+          "next": "Key Grabbed",
+          "giveVar": "Key",
+          "giveAmt": 1,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "reqVal": 0,
+          "maxUses": 1,
+          "persistFlag": "KeyTaken",
+          "promptChar": "",
+          "op": "=",
+          "showUsage": false
+        },
+        {
+          "id": "1773613537777",
+          "txt": "Go Back",
+          "next": "starting room",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "reqVal": 0,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": "",
+          "op": "="
+        }
+      ],
+      "extraTexts": [
+        {
+          "var": "KeyTaken",
+          "reqVal": 0,
+          "text": "A small shiny item catches your attention",
+          "op": "=",
+          "reqMin": 0,
+          "reqMax": 0
+        }
+      ]
+    },
+    {
+      "id": "Key Grabbed",
+      "text": "You found a key! Good job",
+      "choices": [
+        {
+          "id": "1773613563178",
+          "txt": "Go back",
+          "next": "Closet",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "reqVal": 0,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": "",
+          "op": "="
+        }
+      ]
+    },
+    {
+      "id": "Workout",
+      "text": "you do some push ups or something idk +2 STR",
+      "choices": [
+        {
+          "id": "1773613584012",
+          "txt": "Get up",
+          "next": "starting room",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "reqVal": 0,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": "",
+          "op": "<",
+          "lockedMsg": ""
+        },
+        {
+          "id": "1773618125110",
+          "txt": "Work Out Again",
+          "next": "",
+          "giveVar": "Strength",
+          "giveAmt": 2,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "Strength",
+          "op": "<",
+          "reqVal": 6,
+          "hideLocked": false,
+          "maxUses": 2,
+          "showUsage": false,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "You are TOO STRONGGG",
+          "reqMin": 0,
+          "reqMax": 6
+        }
+      ]
+    },
+    {
+      "id": "Office",
+      "text": "You are now in the Office. You see a stranger standing there",
+      "choices": [
+        {
+          "id": "1773613383370",
+          "txt": "Go Back",
+          "next": "starting room",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "reqVal": 0,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": ""
+        },
+        {
+          "id": "1773613399064",
+          "txt": "Talk to Stranger.",
+          "next": "Stranger",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "reqVal": 0,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": ""
+        }
+      ]
+    },
+    {
+      "id": "Stranger2",
+      "text": "My name is {NyarMar}. How can I help ya?",
+      "choices": [
+        {
+          "id": "1773617694100",
+          "txt": "Tell me how strong I am",
+          "next": "Stats Screen",
+          "giveVar": "",
+          "giveAmt": 0,
+          "takeVar": "",
+          "takeAmt": 0,
+          "reqVar": "",
+          "op": "=",
+          "reqVal": 0,
+          "hideLocked": false,
+          "maxUses": 0,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": ""
+        }
+      ]
+    },
+    {
+      "id": "Stats Screen",
+      "text": "Here are your Stats!\n\nStrength : {Strength}\nStupidity: {Stupidity}\n\nGood Game!",
+      "choices": [],
+      "extraTexts": []
+    }
+  ],
+  "globalVars": {
+    "Strength": {
+      "type": "stat",
+      "val": 0,
+      "stats": null
+    },
+    "Key": {
+      "type": "item",
+      "val": 0,
+      "stats": null
+    },
+    "Unlocked": {
+      "type": "flag",
+      "val": 0,
+      "stats": null
+    },
+    "NyarMar": {
+      "type": "char",
+      "val": "Stranger",
+      "stats": {}
+    },
+    "KeyTaken": {
+      "type": "flag",
+      "val": 0,
+      "stats": null
+    },
+    "Stupidity": {
+      "type": "stat",
+      "val": 10,
+      "stats": null
+    }
+  },
+  "varConfig": {
+    "Strength": true,
+    "Key": true,
+    "Unlocked": false,
+    "NyarMar": false
+  }
+}
