@@ -13,28 +13,30 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .block-id-container { background: #eff6ff; padding: 12px; border-radius: 8px; border: 1px solid #dbeafe; margin-bottom: 15px; }
 .block-id-label { font-size: 0.7rem; text-transform: uppercase; color: #2563eb; font-weight: 800; display: block; margin-bottom: 4px; }
 input, textarea, select { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; margin-top: 5px; box-sizing: border-box; font-size: 0.95rem; }
-.range-container { display: flex; align-items: center; gap: 8px; background: #fff; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; width: fit-content; }
-.range-input { width: 65px !important; border: none !important; padding: 4px !important; margin: 0 !important; font-weight: 700; color: var(--p); text-align: center; }
-.checkbox-line { display: flex; align-items: center; justify-content: flex-start; gap: 10px; font-size: 0.8rem; font-weight: 600; color: var(--subtle); margin-top: 8px; cursor: pointer; }
-.checkbox-line input[type="checkbox"] { width: 18px; height: 18px; margin: 0; cursor: pointer; }
-#extra-text-container h4 { font-size: 0.75rem; color: var(--subtle); text-transform: uppercase; margin: 20px 0 10px 0; letter-spacing: 0.05em; font-weight: 800; }
-#extra-text-container .card { padding: 15px; margin-bottom: 10px; box-shadow: none; border: 1px solid var(--border); background: #fcfcfc; }
-.sidebar-box { background: #1e293b; color: #f8fafc; padding: 20px; border-radius: 12px; }
-.block-menu-item { padding: 10px; margin-bottom: 8px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
-.var-tag { display: inline-block; background: #334155; padding: 4px 12px; border-radius: 20px; margin: 4px; font-size: 13px; }
-button { cursor: pointer; padding: 10px 18px; border-radius: 8px; border: none; font-weight: 600; transition: 0.2s; }
+.range-container { display: flex; align-items: center; gap: 8px; background: #fff; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; }
+.range-input { width: 60px; padding: 4px; text-align: center; margin: 0; }
+.btn-p, .btn-s, .btn-d { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.95rem; }
 .btn-p { background: var(--p); color: white; }
 .btn-p:hover { background: #4338ca; }
-.btn-s { background: #e5e7eb; color: var(--t); }
-.btn-s:hover { background: #d1d5db; }
-.btn-d { background: var(--d); color: white; width: 100%; margin-top: 10px; }
-.btn-d:hover { background: #dc2626; }
-#game-msg { display: none; background: #fee2e2; color: #991b1b; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; border: 1px solid #fecaca; }
-.choice-btn { display: block; width: 100%; text-align: left; margin-top: 8px; padding: 10px 14px; border-radius: 8px; border: 1px solid #e5e7eb; background: #f9fafb; font-size: 0.95rem; }
-.choice-btn:hover { background: #e5e7eb; }
+.btn-s { background: #e2e8f0; color: #475569; }
+.btn-s:hover { background: #cbd5e1; }
+.btn-d { background: #fee2e2; color: var(--d); padding: 6px 12px; font-size: 0.85rem; }
+.btn-d:hover { background: #fecaca; }
 .sidebar { display: flex; flex-direction: column; gap: 20px; }
-
-/* Modal CSS */
-.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
-.modal-content { background: white; padding: 25px; border-radius: 12px; width: 400px; max-width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-.slot-row { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; }
+.sidebar-box { background: #1e293b; padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+.block-menu-item { padding: 10px 12px; margin-bottom: 8px; border-radius: 6px; font-size: 0.9rem; font-weight: 600; transition: 0.2s; }
+.block-menu-item:hover { transform: translateX(4px); }
+.remove-blk-btn { color: #f87171; font-size: 1.2rem; cursor: pointer; font-weight: bold; margin-left: 10px; }
+.remove-blk-btn:hover { color: #ef4444; }
+.var-tag { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; margin: 0 4px 4px 0; color: white; text-shadow: 0 1px 1px rgba(0,0,0,0.3); }
+.choice-btn { display: block; width: 100%; text-align: left; background: #f8fafc; border: 2px solid #e2e8f0; padding: 15px; margin-top: 10px; border-radius: 8px; font-size: 1rem; cursor: pointer; transition: 0.2s; font-weight: 600; color: #334155; }
+.choice-btn:hover:not(.locked) { border-color: var(--p); background: #eff6ff; color: var(--p); transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+.locked { opacity: 0.6; cursor: not-allowed; border-style: dashed; }
+#game-msg { display: none; background: #10b981; color: white; text-align: center; padding: 12px; font-weight: bold; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: popIn 0.3s ease-out; }
+@keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+.checkbox-line { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 600; color: #475569; }
+.checkbox-line input { width: auto; margin: 0; }
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(2px); }
+.modal-content { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+.slot-row { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 10px; transition: 0.2s; }
+.slot-row:hover { border-color: #cbd5e1; background: #f1f5f9; }
