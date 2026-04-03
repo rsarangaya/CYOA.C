@@ -4,6 +4,96 @@ let pState = { bId: null, vars: {}, config: {}, usage: {}, slot: 1 };
 let authMode = 'signin';
 let recoveryUserRecord = null;
 
+/* =========================================================
+   UNDO/REDO STACK
+========================================================= */
+window.undoStack = [];
+window.redoStack = [];
+window.isRestoring = false;
+
+window.saveSnapshot = function() {
+    if (window.isRestoring || !story) return;
+    const currentState = JSON.stringify({ story, bIdx });
+    if (window.undoStack.length > 0 && window.undoStack[window.undoStack.length - 1] === currentState) return;
+
+    window.undoStack.push(currentState);
+    if (window.undoStack.length > 10) window.undoStack.shift();
+    window.redoStack = [];
+    if (window.renderUndoRedoButtons) window.renderUndoRedoButtons();
+};
+
+window.undo = function() {
+    if (window.undoStack.length === 0) return;
+    window.isRestoring = true;
+    window.redoStack.push(JSON.stringify({ story, bIdx }));
+    const prevState = JSON.parse(window.undoStack.pop());
+    story = prevState.story;
+    bIdx = prevState.bIdx;
+    window.renderEditor();
+    if (window.renderUndoRedoButtons) window.renderUndoRedoButtons();
+    window.isRestoring = false;
+};
+
+window.redo = function() {
+    if (window.redoStack.length === 0) return;
+    window.isRestoring = true;
+    window.undoStack.push(JSON.stringify({ story, bIdx }));
+    const nextState = JSON.parse(window.redoStack.pop());
+    story = nextState.story;
+    bIdx = nextState.bIdx;
+    window.renderEditor();
+    if (window.renderUndoRedoButtons) window.renderUndoRedoButtons();
+    window.isRestoring = false;
+};
+
+window.renderUndoRedoButtons = function() {
+    const undoBtn = document.getElementById('btn-undo');
+    const redoBtn = document.getElementById('btn-redo');
+    if (undoBtn) {
+        undoBtn.disabled = window.undoStack.length === 0;
+        undoBtn.style.opacity = window.undoStack.length === 0 ? '0.4' : '1';
+        undoBtn.style.cursor = window.undoStack.length === 0 ? 'not-allowed' : 'pointer';
+    }
+    if (redoBtn) {
+        redoBtn.disabled = window.redoStack.length === 0;
+        redoBtn.style.opacity = window.redoStack.length === 0 ? '0.4' : '1';
+        redoBtn.style.cursor = window.redoStack.length === 0 ? 'not-allowed' : 'pointer';
+    }
+};
+
+document.addEventListener('mousedown', (e) => {
+    const ed = document.getElementById('edit-screen');
+    if (!ed || !ed.classList.contains('active')) return;
+    if (e.target.closest('#btn-undo') || e.target.closest('#btn-redo')) return;
+
+    if (e.target.closest('button') || e.target.closest('.block-list-item') || e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        window.saveSnapshot();
+    }
+});
+
+document.addEventListener('focusin', (e) => {
+    const ed = document.getElementById('edit-screen');
+    if (!ed || !ed.classList.contains('active')) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        window.saveSnapshot();
+    }
+});
+
+document.addEventListener('keydown', function(e) {
+    const ed = document.getElementById('edit-screen');
+    if (!ed || !ed.classList.contains('active')) return;
+    if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z') {
+            e.preventDefault();
+            window.undo();
+        } else if (e.key === 'y') {
+            e.preventDefault();
+            window.redo();
+        }
+    }
+});
+
+
 
 /* UI CLEANUP INJECTION */
 const styleCleanup = document.createElement('style');
@@ -494,9 +584,7 @@ window.renderVarTable = function() {
     window.activeVarFilter = window.activeVarFilter || 'stat';
     window.activeVarSearchTerm = window.activeVarSearchTerm || '';
 
-    let varHTML = `<div style="display:flex; align-items:center; margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;"><label style="font-size:0.8rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; color:black;"><input type="checkbox" ${story.useDayCycle ? 'checked' : ''} onchange="toggleDayCycle(this.checked)"> 🌙 Enable Day/Night Cycle</label></div>`;
-
-    varHTML += `<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px; background:#f1f5f9; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
+    let varHTML = `<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px; background:#f1f5f9; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
         <div style="display:flex; gap:10px; align-items:center;">
             <label style="font-size:0.8rem; font-weight:bold; color:#334155;">View:</label>
             <select style="flex:1;  font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8;" onchange="window.activeVarFilter=this.value; window.renderVarTable();">
@@ -527,8 +615,10 @@ window.renderVarTable = function() {
     varHTML += `<button class="btn-p"  style="width:100%; margin-bottom:15px; font-size:0.8rem; padding:10px;" onclick="addTypedVar(window.activeVarFilter)">+ Add Custom ${window.activeVarFilter.toUpperCase()}</button>`;
 
     let eventHTML = '';
+    eventHTML = `<div style="display:inline-block; margin-bottom:15px; padding:6px 12px; background:#f8fafc; border-radius:20px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1);"><label style="font-size:0.75rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; color:#334155; margin:0;"><input type="checkbox" ${story.useDayCycle ? 'checked' : ''} onchange="toggleDayCycle(this.checked)" style="margin:0;"> 🌙 Enable Day/Night Cycle</label></div>`;
+
     if (story.useDayCycle) {
-        eventHTML = `<div style="margin-top:20px; background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #fde68a; box-shadow:0 2px 4px rgba(0,0,0,0.05);"><h4 style="margin:0 0 12px 0; font-size:0.9rem; color:#b45309; display:flex; align-items:center; gap:6px;">📅 Scheduled Daily Events</h4>`;
+        eventHTML += `<div style="margin-top:10px; background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #fde68a; box-shadow:0 2px 4px rgba(0,0,0,0.05);"><h4 style="margin:0 0 12px 0; font-size:0.9rem; color:#b45309; display:flex; align-items:center; gap:6px;">📅 Scheduled Daily Events</h4>`;
         (story.dailyEvents || []).forEach((ev, i) => {
             ev.type = ev.type || 'var';
             let actionHTML = '';
@@ -578,7 +668,77 @@ window.renderVarTable = function() {
         eventHTML += `<button style="background:#d97706; color:white; border:none; border-radius:6px; padding:8px; width:100%; font-size:0.8rem; font-weight:bold; cursor:pointer; transition:0.2s;" onmouseover="this.style.background='#b45309'" onmouseout="this.style.background='#d97706'" onclick="addDailyEvent()">+ Add Daily Event</button></div>`;
     }
 
-    document.getElementById('ed-var-table').innerHTML = varHTML + eventHTML;
+    
+    // STAT EVENTS
+    eventHTML += `<div style="margin-top:15px; background:#eff6ff; padding:15px; border-radius:8px; border:1px solid #bfdbfe; box-shadow:0 2px 4px rgba(0,0,0,0.05);"><h4 style="margin:0 0 12px 0; font-size:0.9rem; color:#1e40af; display:flex; align-items:center; gap:6px;">⚡ Stat-Based Events</h4>`;
+    (story.statEvents || []).forEach((ev, i) => {
+        ev.type = ev.type || 'var';
+        ev.reqOp = ev.reqOp || '>=';
+        let actionHTML = '';
+        if (ev.type === 'var') {
+            actionHTML = `
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <span style="font-size:0.85rem; font-weight:bold; color:#1e40af;">Set Var:</span>
+                    <select style="flex:1; font-size:0.85rem; border-radius:4px; border:1px solid #93c5fd;" onchange="updateStatEvent(${i}, 'varName', this.value)">
+                        <option value="">- Select Variable -</option>
+                        ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${ev.varName===v?'selected':''}>${v}</option>`).join('')}
+                    </select>
+                    <span style="font-size:0.85rem; font-weight:bold; color:#1e40af;">=</span>
+                    <input type="number" style="min-width:60px; max-width:120px; font-size:0.85rem; border-radius:4px; border:1px solid #93c5fd;" value="${ev.val !== undefined ? ev.val : 1}" onchange="updateStatEvent(${i}, 'val', parseInt(this.value))">
+                </div>
+            `;
+        } else {
+            actionHTML = `
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <span style="font-size:0.85rem; font-weight:bold; color:#1e40af;">Jump To:</span>
+                    <select style="flex:1; font-size:0.85rem; border-radius:4px; border:1px solid #93c5fd;" onchange="updateStatEvent(${i}, 'blockName', this.value)">
+                        <option value="">- Select Block -</option>
+                        ${story.blocks.map(b => `<option value="${b.id}" ${ev.blockName===b.id?'selected':''}>${b.id}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+        }
+
+        eventHTML += `<div style="background:#f8fafc; padding:10px; border-radius:6px; border:1px solid #93c5fd; margin-bottom:10px; position:relative;">
+            <button style="position:absolute; top:8px; right:8px; width:24px; height:24px; padding:0; display:flex; align-items:center; justify-content:center; font-size:0.8rem; background:#fee2e2; color:#ef4444; border:none; border-radius:4px; cursor:pointer;" onclick="removeStatEvent(${i})" title="Remove Event">✕</button>
+
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:8px; padding-right:28px;">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="font-size:0.85rem; font-weight:bold; color:#1e40af;">If</span>
+                    <select style="font-size:0.8rem; border-radius:4px; border:1px solid #93c5fd; color:#1e40af;" onchange="updateStatEvent(${i}, 'reqVar', this.value)">
+                        <option value="">- Stat -</option>
+                        ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${ev.reqVar===v?'selected':''}>${v}</option>`).join('')}
+                    </select>
+                    <select style="font-size:0.8rem; border-radius:4px; border:1px solid #93c5fd; color:#1e40af; font-weight:bold;" onchange="updateStatEvent(${i}, 'reqOp', this.value)">
+                        <option value=">=" ${ev.reqOp==='>='?'selected':''}>&ge;</option>
+                        <option value="<=" ${ev.reqOp==='<='?'selected':''}>&le;</option>
+                        <option value="==" ${ev.reqOp==='=='?'selected':''}>=</option>
+                        <option value=">" ${ev.reqOp==='>'?'selected':''}>&gt;</option>
+                        <option value="<" ${ev.reqOp==='<'?'selected':''}>&lt;</option>
+                    </select>
+                    <input type="number" style="min-width:60px; max-width:80px; font-size:0.8rem; border-radius:4px; border:1px solid #93c5fd; text-align:center;" value="${ev.reqVal !== undefined ? ev.reqVal : 1}" onchange="updateStatEvent(${i}, 'reqVal', parseInt(this.value))">
+                </div>
+
+                <select style="font-size:0.85rem; border-radius:4px; border:1px solid #93c5fd; background:#eff6ff; color:#1e40af; font-weight:bold;" onchange="updateStatEvent(${i}, 'type', this.value)">
+                    <option value="var" ${ev.type==='var'?'selected':''}>Action: Set Variable</option>
+                    <option value="block" ${ev.type==='block'?'selected':''}>Action: Jump to Block</option>
+                </select>
+
+                <label style="font-size:0.75rem; color:#475569; display:flex; align-items:center; gap:4px; cursor:pointer; margin:0;"><input type="checkbox" ${ev.fireOnce !== false ? 'checked' : ''} onchange="updateStatEvent(${i}, 'fireOnce', this.checked)" style="margin:0;"> Fire Only Once</label>
+            </div>
+
+            <div style="background:white; padding:8px; border-radius:4px; border:1px dashed #93c5fd;">
+                ${actionHTML}
+            </div>
+        </div>`;
+    });
+    eventHTML += `<button style="background:#2563eb; color:white; border:none; border-radius:6px; padding:8px; width:100%; font-size:0.8rem; font-weight:bold; cursor:pointer; transition:0.2s;" onmouseover="this.style.background='#1d4ed8'" onmouseout="this.style.background='#2563eb'" onclick="addStatEvent()">+ Add Stat Event</button></div>`;
+
+    document.getElementById('ed-var-table').innerHTML = varHTML;
+    const edEventsTable = document.getElementById('ed-events-table');
+    if (edEventsTable) {
+        edEventsTable.innerHTML = eventHTML || '<div style="color:#94a3b8; font-size:0.8rem; font-style:italic; text-align:center; margin-top:20px;">No events scheduled.</div>';
+    }
 
     window.filterMainVarTable();
 };
@@ -591,6 +751,50 @@ window.filterMainVarTable = function() {
         el.style.display = el.getAttribute('data-var-name').includes(term) ? 'block' : 'none';
     });
 };
+
+window.addStatEvent = function() {
+    if(!story.statEvents) story.statEvents = [];
+    story.statEvents.push({reqVar: '', reqOp: '>=', reqVal: 1, type: 'var', varName: '', val: 1, blockName: '', fireOnce: true});
+    window.renderEditor();
+};
+window.updateStatEvent = function(i, f, v) { story.statEvents[i][f] = v; window.renderEditor(); };
+window.removeStatEvent = function(i) { story.statEvents.splice(i,1); window.renderEditor(); };
+
+window.checkStatEvents = function() {
+    if (!story.statEvents || !story.statEvents.length) return false;
+    if (!pState.firedEvents) pState.firedEvents = {};
+
+    let jumped = false;
+    for (let i = 0; i < story.statEvents.length; i++) {
+        let ev = story.statEvents[i];
+        if (ev.fireOnce !== false && pState.firedEvents['statEv_'+i]) continue;
+        if (!ev.reqVar || !pState.vars[ev.reqVar]) continue;
+
+        let cur = pState.vars[ev.reqVar].val;
+        let req = ev.reqVal;
+        let pass = false;
+        if (ev.reqOp === '>=') pass = cur >= req;
+        if (ev.reqOp === '<=') pass = cur <= req;
+        if (ev.reqOp === '==') pass = cur === req;
+        if (ev.reqOp === '>') pass = cur > req;
+        if (ev.reqOp === '<') pass = cur < req;
+
+        if (pass) {
+            if (ev.fireOnce !== false) pState.firedEvents['statEv_'+i] = true;
+
+            if (ev.type === 'var' && ev.varName && pState.vars[ev.varName]) {
+                pState.vars[ev.varName].val = ev.val;
+            } else if (ev.type === 'block' && ev.blockName) {
+                if (pState.bId !== ev.blockName) {
+                    pState.bId = ev.blockName;
+                    jumped = true;
+                }
+            }
+        }
+    }
+    return jumped;
+};
+
 window.addDailyEvent = function() {
     if(!story.dailyEvents) story.dailyEvents = [];
     story.dailyEvents.push({day: 2, type: 'var', varName: '', val: 1, blockName: ''});
@@ -801,7 +1005,11 @@ window.renderEditor = function() {
                              <select id="ed-blk-group" style=" font-size:0.85rem; border-radius:4px; border:1px solid #cbd5e1;" onchange="changeBlockGroup(this.value)"></select>
                              <button class="btn-s" style=" font-size:0.8rem;" onclick="createBlockGroup()">+ Add Folder</button>
                              <button class="btn-s" style="background:#10b981; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;" onclick="playtestCurrentBlock()">▶️ Test Block</button>
-                             <button class="btn-s" style="background:#8b5cf6; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;" onclick="window.showStoryboard()">🗺️ Storyboard</button>`;
+                             <button class="btn-s" style="background:#8b5cf6; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;" onclick="window.showStoryboard()">🗺️ Storyboard</button>
+                             <div style="display:flex; gap:5px; margin-left:15px; border-left:2px solid #cbd5e1; padding-left:15px;">
+                                 <button id="btn-undo" class="btn-s" style="padding:4px 8px; cursor:pointer; min-width:40px; margin:0;" onclick="window.undo()" title="Undo (Ctrl+Z)">↩️</button>
+                                 <button id="btn-redo" class="btn-s" style="padding:4px 8px; cursor:pointer; min-width:40px; margin:0;" onclick="window.redo()" title="Redo (Ctrl+Y)">↪️</button>
+                             </div>`;
             blockIdInput.parentNode.insertBefore(ctr, blockIdInput.nextSibling);
         }
 
@@ -1123,7 +1331,7 @@ window.renderChoices = function() {
         ${reqsHTML}
         <div><label style="font-size:0.8rem; font-weight:bold;">Persistence</label><select onchange="updateChoice(${i}, 'persistFlag', this.value)"><option value="">Set Flag On...</option>${vOpt.replace(`value="${c.persistFlag}"`, `value="${c.persistFlag}" selected`)}</select><label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label></div>
         <div><label style="font-size:0.8rem; font-weight:bold;">Max Uses</label><input type="number" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))"><label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
-            <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.8rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="font-size:0.8rem; cursor:help;">Add Time Phases: <input type="number" title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="min-width:60px; max-width:100px; padding:2px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.8rem;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>
+            ${story.useDayCycle ? `${story.useDayCycle ? `<div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.8rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="font-size:0.8rem; cursor:help;">Add Time Phases: <input type="number" title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="min-width:60px; max-width:100px; padding:4px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.8rem; display:flex; align-items:center; gap:6px;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>` : ''}` : ''}
         </div>
         <div><label style="font-size:0.8rem; font-weight:bold;">Prompt Name Change</label><select onchange="updateChoice(${i}, 'promptChar', this.value)"><option value="">None</option>${cOpt.replace(`value="${c.promptChar}"`, `value="${c.promptChar}" selected`)}</select></div>
         <div class="sub-panel"><label style="font-size:0.8rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.85rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
@@ -1270,6 +1478,10 @@ window.unequipItem = function(type) {
 };
 
 window.renderStep = function() {
+    if (window.checkStatEvents()) {
+        window.renderStep();
+        return;
+    }
 
     const b = story.blocks.find(bl => bl.id === pState.bId);
     if (!b) return;
@@ -1605,6 +1817,8 @@ window.initNewStory = function(isRPG) {
 window.loadEditor = async function(i) {
     story = await loadStoryFromDB(storiesList[i].Story_ID);
     bIdx = 0;
+    window.undoStack = [];
+    window.redoStack = [];
     window.renderEditor();
     window.showScreen('edit-screen');
 };
@@ -1699,6 +1913,24 @@ window.playtestCurrentBlock = function() {
     window.renderStep();
 };
 
+
+window.switchSidebarTab = function(tabName) {
+    document.querySelectorAll('.sidebar-tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.sidebar-tab-btn').forEach(el => {
+        el.style.background = 'transparent';
+        el.style.color = '#94a3b8';
+    });
+
+    const content = document.getElementById('tab-' + tabName);
+    if (content) content.style.display = 'block';
+
+    const btn = document.getElementById('btn-tab-' + tabName);
+    if (btn) {
+        btn.style.background = '#1e293b';
+        btn.style.color = 'white';
+    }
+};
+
 window.showScreen = function(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
@@ -1723,6 +1955,8 @@ window.exportStory = function() {
 };
 
 window.importStory = async function(event) {
+    window.undoStack = [];
+    window.redoStack = [];
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
