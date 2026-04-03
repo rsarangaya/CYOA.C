@@ -4,6 +4,125 @@ let pState = { bId: null, vars: {}, config: {}, usage: {}, slot: 1 };
 let authMode = 'signin';
 let recoveryUserRecord = null;
 
+
+/* UI CLEANUP INJECTION */
+const styleCleanup = document.createElement('style');
+styleCleanup.innerHTML = `
+    button, .btn-s, .btn-d {
+        white-space: nowrap !important;
+        
+        
+        box-sizing: border-box;
+        transition: background 0.2s, transform 0.1s;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    button:active {
+        transform: scale(0.98);
+    }
+    input[type="text"], input[type="number"], input[type="password"], select, textarea {
+        box-sizing: border-box;
+        max-width: 100%;
+        padding: 8px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        background: #fff;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, input[type="password"]:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: #6366f1;
+        box-shadow: 0 0 0 2px rgba(99,102,241,0.2);
+    }
+    .choice-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 15px;
+        background: #f1f5f9;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+    }
+    .effect-row, .condition-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        background: #ffffff;
+        padding: 10px;
+        border-radius: 6px;
+        border: 1px solid #cbd5e1;
+        margin-top: 6px;
+    }
+    .effect-row > select, .condition-row > select, 
+    .effect-row > input, .condition-row > input {
+        flex: 1 1 auto;
+        min-width: 80px;
+    }
+    .effect-row > button, .condition-row > button {
+        flex: 0 0 auto;
+        padding: 6px 12px;
+    }
+    .card-title {
+        font-size: 0.9rem;
+        color: #1e293b;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .sub-panel {
+        background: #ffffff;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        grid-column: 1 / -1;
+    }
+    label {
+        font-weight: 600;
+        color: #475569;
+        font-size: 0.8rem;
+        display: block;
+        margin-bottom: 4px;
+    }
+    .checkbox-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: normal;
+        cursor: pointer;
+    }
+    .btn-d {
+        background: #fee2e2;
+        color: #ef4444;
+        border: 1px solid #fca5a5;
+    }
+    .btn-d:hover { background: #fca5a5; color: #b91c1c; }
+
+    .btn-s {
+        background: #e0e7ff;
+        color: #4338ca;
+        border: 1px solid #c7d2fe;
+    }
+    .btn-s:hover { background: #c7d2fe; color: #312e81; }
+
+    .btn-primary {
+        background: #4f46e5;
+        color: white;
+        border: none;
+    }
+    .btn-primary:hover { background: #4338ca; }
+`;
+document.head.appendChild(styleCleanup);
+
+
 /* =========================================================
    1. RELATIONAL DB SCHEMA & SETUP
 ========================================================= */
@@ -380,14 +499,14 @@ window.renderVarTable = function() {
     varHTML += `<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px; background:#f1f5f9; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
         <div style="display:flex; gap:10px; align-items:center;">
             <label style="font-size:0.8rem; font-weight:bold; color:#334155;">View:</label>
-            <select style="flex:1; padding:6px; font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8;" onchange="window.activeVarFilter=this.value; window.renderVarTable();">
+            <select style="flex:1;  font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8;" onchange="window.activeVarFilter=this.value; window.renderVarTable();">
                 <option value="stat" ${window.activeVarFilter==='stat'?'selected':''}>Stats</option>
                 <option value="item" ${window.activeVarFilter==='item'?'selected':''}>Items</option>
                 <option value="flag" ${window.activeVarFilter==='flag'?'selected':''}>Flags</option>
                 <option value="npc" ${window.activeVarFilter==='npc'?'selected':''}>NPCs</option>
             </select>
         </div>
-        <input type="text" id="main-var-search" placeholder="Search ${window.activeVarFilter}s..." value="${window.activeVarSearchTerm}" oninput="window.activeVarSearchTerm=this.value; window.filterMainVarTable()" style="padding:6px; font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8; width:100%; box-sizing:border-box;">
+        <input type="text" id="main-var-search" placeholder="Search ${window.activeVarFilter}s..." value="${window.activeVarSearchTerm}" oninput="window.activeVarSearchTerm=this.value; window.filterMainVarTable()" style=" font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8; width:100%; box-sizing:border-box;">
     </div>`;
 
     for (let key in story.globalVars) {
@@ -402,7 +521,7 @@ window.renderVarTable = function() {
             rpgModHTML = window.renderRPGModifierUI(key, effType);
         }
 
-        varHTML += `<div class="main-var-card" data-var-name="${key.toLowerCase()}" style="background:white; border-radius:8px; padding:12px; margin-bottom:12px; border-left: 5px solid ${color}; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #333;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><span style="font-size:0.6rem; font-weight:bold; color:${color}; text-transform:uppercase;">${effType}</span><label style="font-size:0.65rem; display:flex; align-items:center; gap:4px; cursor:pointer; color:#666;"><input type="checkbox" ${story.varConfig[key] ? 'checked' : ''} onchange="toggleVarVis('${key}', this.checked)"> HUD</label></div><div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;"><input style="flex:1.5; padding:6px; font-size:0.8rem; border:1px solid #ddd; border-radius:4px;" value="${key}" onchange="renameVar('${key}', this.value)"><div style="flex:1;">${window.renderVarInput(key, v)}</div><button onclick="deleteVar('${key}')" style="background:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px 10px;">✕</button></div>${effType === 'npc' ? window.renderNPCSubVars(key, v) : ''}${rpgModHTML}</div>`;
+        varHTML += `<div class="main-var-card" data-var-name="${key.toLowerCase()}" style="background:white; border-radius:8px; padding:12px; margin-bottom:12px; border-left: 5px solid ${color}; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #333;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><span style="font-size:0.8rem; font-weight:bold; color:${color}; text-transform:uppercase;">${effType}</span><label style="font-size:0.8rem; display:flex; align-items:center; gap:4px; cursor:pointer; color:#666;"><input type="checkbox" ${story.varConfig[key] ? 'checked' : ''} onchange="toggleVarVis('${key}', this.checked)"> HUD</label></div><div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;"><input style="flex:1.5;  font-size:0.8rem; border:1px solid #ddd; border-radius:4px;" value="${key}" onchange="renameVar('${key}', this.value)"><div style="flex:1;">${window.renderVarInput(key, v)}</div><button onclick="deleteVar('${key}')" style="background:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px 10px;">✕</button></div>${effType === 'npc' ? window.renderNPCSubVars(key, v) : ''}${rpgModHTML}</div>`;
     }
 
     varHTML += `<button class="btn-p"  style="width:100%; margin-bottom:15px; font-size:0.8rem; padding:10px;" onclick="addTypedVar(window.activeVarFilter)">+ Add Custom ${window.activeVarFilter.toUpperCase()}</button>`;
@@ -416,20 +535,20 @@ window.renderVarTable = function() {
             if (ev.type === 'var') {
                 actionHTML = `
                     <div style="display:flex; gap:6px; align-items:center;">
-                        <span style="font-size:0.75rem; font-weight:bold; color:#78350f;">Set Var:</span>
-                        <select style="flex:1; padding:6px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d;" onchange="updateDailyEvent(${i}, 'varName', this.value)">
+                        <span style="font-size:0.85rem; font-weight:bold; color:#78350f;">Set Var:</span>
+                        <select style="flex:1;  font-size:0.85rem; border-radius:4px; border:1px solid #fcd34d;" onchange="updateDailyEvent(${i}, 'varName', this.value)">
                             <option value="">- Select Variable -</option>
                             ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${ev.varName===v?'selected':''}>${v}</option>`).join('')}
                         </select>
-                        <span style="font-size:0.75rem; font-weight:bold; color:#78350f;">=</span>
-                        <input type="number" style="width:60px; padding:6px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d;" value="${ev.val !== undefined ? ev.val : 1}" onchange="updateDailyEvent(${i}, 'val', parseInt(this.value))">
+                        <span style="font-size:0.85rem; font-weight:bold; color:#78350f;">=</span>
+                        <input type="number" style="min-width:60px; max-width:120px;  font-size:0.85rem; border-radius:4px; border:1px solid #fcd34d;" value="${ev.val !== undefined ? ev.val : 1}" onchange="updateDailyEvent(${i}, 'val', parseInt(this.value))">
                     </div>
                 `;
             } else {
                 actionHTML = `
                     <div style="display:flex; gap:6px; align-items:center;">
-                        <span style="font-size:0.75rem; font-weight:bold; color:#78350f;">Jump To:</span>
-                        <select style="flex:1; padding:6px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d;" onchange="updateDailyEvent(${i}, 'blockName', this.value)">
+                        <span style="font-size:0.85rem; font-weight:bold; color:#78350f;">Jump To:</span>
+                        <select style="flex:1;  font-size:0.85rem; border-radius:4px; border:1px solid #fcd34d;" onchange="updateDailyEvent(${i}, 'blockName', this.value)">
                             <option value="">- Select Block -</option>
                             ${story.blocks.map(b => `<option value="${b.id}" ${ev.blockName===b.id?'selected':''}>${b.id}</option>`).join('')}
                         </select>
@@ -441,11 +560,11 @@ window.renderVarTable = function() {
 
                 <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:8px; padding-right:28px;">
                     <div style="display:flex; align-items:center; gap:6px;">
-                        <span style="font-size:0.75rem; font-weight:bold; color:#92400e;">Trigger on Day:</span>
-                        <input type="number" min="1" style="width:60px; padding:4px 8px; font-size:0.8rem; font-weight:bold; color:#b45309; border-radius:4px; border:1px solid #fcd34d; text-align:center;" value="${ev.day}" onchange="updateDailyEvent(${i}, 'day', parseInt(this.value))">
+                        <span style="font-size:0.85rem; font-weight:bold; color:#92400e;">Trigger on Day:</span>
+                        <input type="number" min="1" style="min-width:60px; max-width:120px;  font-size:0.8rem; font-weight:bold; color:#b45309; border-radius:4px; border:1px solid #fcd34d; text-align:center;" value="${ev.day}" onchange="updateDailyEvent(${i}, 'day', parseInt(this.value))">
                     </div>
 
-                    <select style="padding:4px 8px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d; background:#fef3c7; color:#92400e; font-weight:bold;" onchange="updateDailyEvent(${i}, 'type', this.value)">
+                    <select style=" font-size:0.85rem; border-radius:4px; border:1px solid #fcd34d; background:#fef3c7; color:#92400e; font-weight:bold;" onchange="updateDailyEvent(${i}, 'type', this.value)">
                         <option value="var" ${ev.type==='var'?'selected':''}>Action: Update Variable</option>
                         <option value="block" ${ev.type==='block'?'selected':''}>Action: Force Block Jump</option>
                     </select>
@@ -490,7 +609,7 @@ window.renderRPGStats = function() {
         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap:8px; margin-bottom:15px;">`;
 
     (story.rpgStats || []).forEach((st, i) => {
-        html += `<div style="background:white; padding:6px 10px; border-radius:6px; font-size:0.75rem; font-weight:600; color:#831843; border:1px solid #f9a8d4; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+        html += `<div style="background:white; padding:6px 10px; border-radius:6px; font-size:0.85rem; font-weight:600; color:#831843; border:1px solid #f9a8d4; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
             <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${st}</span>
             <button style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:0.9rem; font-weight:bold; padding:0 0 0 5px; line-height:1;" onclick="removeRPGStat(${i})" title="Remove Stat">×</button>
         </div>`;
@@ -548,7 +667,7 @@ window.renderRPGModifierUI = function(key, effType) {
     let labelTxt = effType === 'flag' ? '⚡ Active Effect / Aura?' : '⚔️ RPG Modifier?';
 
     let html = `<div style="margin-top:10px; padding-top:10px; border-top:1px dashed #cbd5e1;">`;
-    html += `<label style="font-size:0.75rem; font-weight:bold; color:#4f46e5; display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" ${isRPGItem ? 'checked' : ''} onchange="toggleRPGItem('${key}', this.checked, '${effType}')"> ${labelTxt}</label>`;
+    html += `<label style="font-size:0.85rem; font-weight:bold; color:#4f46e5; display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" ${isRPGItem ? 'checked' : ''} onchange="toggleRPGItem('${key}', this.checked, '${effType}')"> ${labelTxt}</label>`;
 
     if (isRPGItem) {
         let item = story.rpgItems[key];
@@ -558,8 +677,8 @@ window.renderRPGModifierUI = function(key, effType) {
 
         if (effType === 'item') {
             html += `<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                <span style="font-size:0.7rem; font-weight:bold; color:#3730a3;">Item Type:</span>
-                <select style="padding:4px; font-size:0.7rem; border-radius:4px; border:1px solid #a5b4fc; flex:1;" onchange="updateRPGItem('${key}', 'type', this.value)">
+                <span style="font-size:0.8rem; font-weight:bold; color:#3730a3;">Item Type:</span>
+                <select style=" font-size:0.8rem; border-radius:4px; border:1px solid #a5b4fc; flex:1;" onchange="updateRPGItem('${key}', 'type', this.value)">
                     <option value="weapon" ${item.type==='weapon'?'selected':''}>Weapon</option>
                     <option value="armor" ${item.type==='armor'?'selected':''}>Armor</option>
                     <option value="consumable" ${item.type==='consumable'?'selected':''}>Consumable (Destroyed on use)</option>
@@ -568,16 +687,16 @@ window.renderRPGModifierUI = function(key, effType) {
             </div>`;
             if (item.type === 'consumable' || item.type === 'useable') {
                 html += `<div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <label style="flex:1; font-size:0.7rem; color:#3730a3; font-weight:bold;">Max Uses (0=Stack/Inf)
-                        <input type="number" min="0" value="${item.maxUses || 0}" style="width:100%; padding:4px; margin-top:4px; border:1px solid #a5b4fc; border-radius:4px;" onchange="updateRPGItem('${key}', 'maxUses', parseInt(this.value)||0)">
+                    <label style="flex:1; font-size:0.8rem; color:#3730a3; font-weight:bold;">Max Uses (0=Stack/Inf)
+                        <input type="number" min="0" value="${item.maxUses || 0}" style="width:100%;  margin-top:4px; border:1px solid #a5b4fc; border-radius:4px;" onchange="updateRPGItem('${key}', 'maxUses', parseInt(this.value)||0)">
                     </label>
-                    <label style="flex:1; font-size:0.7rem; color:#3730a3; font-weight:bold;">Cooldown (Phases)
-                        <input type="number" min="0" value="${item.cooldown || 0}" style="width:100%; padding:4px; margin-top:4px; border:1px solid #a5b4fc; border-radius:4px;" onchange="updateRPGItem('${key}', 'cooldown', parseInt(this.value)||0)">
+                    <label style="flex:1; font-size:0.8rem; color:#3730a3; font-weight:bold;">Cooldown (Phases)
+                        <input type="number" min="0" value="${item.cooldown || 0}" style="width:100%;  margin-top:4px; border:1px solid #a5b4fc; border-radius:4px;" onchange="updateRPGItem('${key}', 'cooldown', parseInt(this.value)||0)">
                     </label>
                 </div>`;
             }
         } else {
-            html += `<div style="font-size:0.7rem; color:#3730a3; margin-bottom:10px; font-style:italic;">This modifier will apply to the player's stats permanently as long as this Flag is turned ON (Value > 0).</div>`;
+            html += `<div style="font-size:0.8rem; color:#3730a3; margin-bottom:10px; font-style:italic;">This modifier will apply to the player's stats permanently as long as this Flag is turned ON (Value > 0).</div>`;
         }
 
         html += `<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:10px;">`;
@@ -587,14 +706,14 @@ window.renderRPGModifierUI = function(key, effType) {
                 hasStats = true;
                 let valStr = item.stats[st] > 0 ? `+${item.stats[st]}` : item.stats[st];
                 let col = item.stats[st] > 0 ? '#10b981' : '#ef4444';
-                html += `<div style="display:flex; justify-content:space-between; align-items:center; background:white; padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.7rem; font-weight:bold;">
+                html += `<div style="display:flex; justify-content:space-between; align-items:center; background:white;  border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem; font-weight:bold;">
                     <span>${st} <span style="color:${col}; margin-left:6px;">${valStr}</span></span>
                     <button style="background:none; border:none; color:#ef4444; cursor:pointer; font-weight:bold; padding:0;" onclick="removeRPGItemStat('${key}', '${st}')">✕</button>
                 </div>`;
             }
         }
         if (!hasStats) {
-            html += `<div style="font-size:0.65rem; color:#64748b; font-style:italic; padding-bottom:6px;">No stat modifiers yet.</div>`;
+            html += `<div style="font-size:0.8rem; color:#64748b; font-style:italic; padding-bottom:6px;">No stat modifiers yet.</div>`;
         }
         html += `</div>`;
 
@@ -604,12 +723,12 @@ window.renderRPGModifierUI = function(key, effType) {
             .join('');
 
         html += `<div style="display:flex; gap:5px; align-items:center;">
-            <select id="rpg_mod_stat_${key}" style="flex:1; padding:4px; font-size:0.7rem; border-radius:4px; border:1px solid #a5b4fc;">
+            <select id="rpg_mod_stat_${key}" style="flex:1;  font-size:0.8rem; border-radius:4px; border:1px solid #a5b4fc;">
                 <option value="">- Stat -</option>
                 ${statOptions}
             </select>
-            <input type="number" id="rpg_mod_val_${key}" value="1" style="width:50px; padding:4px; font-size:0.7rem; border-radius:4px; border:1px solid #a5b4fc; text-align:center;">
-            <button style="background:#4f46e5; color:white; border:none; border-radius:4px; padding:4px 8px; font-size:0.7rem; cursor:pointer; font-weight:bold;" onclick="addRPGItemStatUI('${key}')">Add</button>
+            <input type="number" id="rpg_mod_val_${key}" value="1" style="min-width:60px; max-width:100px;  font-size:0.8rem; border-radius:4px; border:1px solid #a5b4fc; text-align:center;">
+            <button style="background:#4f46e5; color:white; border:none; border-radius:4px;  font-size:0.8rem; cursor:pointer; font-weight:bold;" onclick="addRPGItemStatUI('${key}')">Add</button>
         </div>`;
 
         html += `</div>`;
@@ -657,7 +776,7 @@ window.removeRPGItemStat = function(key, stat) {
 
 window.renderVarInput = function(key, v) {
 
-    const style = `width:100%; padding:6px; font-size:0.8rem; border:1px solid #ddd; border-radius:4px;`;
+    const style = `width:100%;  font-size:0.8rem; border:1px solid #ddd; border-radius:4px;`;
     if (v.type === 'char' || v.type === 'npc') return `<input style="${style}" type="text" value="${v.val}" onchange="story.globalVars['${key}'].val=this.value">`;
     if (v.type === 'flag') return `<select style="${style}" onchange="story.globalVars['${key}'].val=parseInt(this.value)"><option value="0" ${v.val===0?'selected':''}>Off</option><option value="1" ${v.val===1?'selected':''}>On</option></select>`;
     return `<input style="${style}" type="number" value="${v.val}" onchange="story.globalVars['${key}'].val=parseInt(this.value)">`;
@@ -675,13 +794,14 @@ window.renderEditor = function() {
         if (!document.getElementById('ed-blk-group-container')) {
             const ctr = document.createElement('div');
             ctr.id = 'ed-blk-group-container';
-            ctr.style.display = 'inline-flex';
+            ctr.style.display = 'flex'; ctr.style.flexWrap = 'wrap'; ctr.style.gap = '8px'; ctr.style.flex = '1';
             ctr.style.alignItems = 'center';
             ctr.style.marginLeft = '15px';
-            ctr.innerHTML = `<span style="font-size:0.75rem; font-weight:bold; margin-right:5px; color:#475569;">Folder:</span>
-                             <select id="ed-blk-group" style="padding:4px; font-size:0.75rem; border-radius:4px; border:1px solid #cbd5e1;" onchange="changeBlockGroup(this.value)"></select>
-                             <button class="btn-s" style="padding:4px 8px; margin:0 0 0 5px; font-size:0.7rem;" onclick="createBlockGroup()">+ Add Folder</button>
-                             <button class="btn-s" style="background:#10b981; color:white; border:none; padding:4px 12px; border-radius:4px; margin-left:15px; cursor:pointer;" onclick="playtestCurrentBlock()">▶️ Test Block</button>`;
+            ctr.innerHTML = `<span style="font-size:0.85rem; font-weight:bold; margin-right:5px; color:#475569;">Folder:</span>
+                             <select id="ed-blk-group" style=" font-size:0.85rem; border-radius:4px; border:1px solid #cbd5e1;" onchange="changeBlockGroup(this.value)"></select>
+                             <button class="btn-s" style=" font-size:0.8rem;" onclick="createBlockGroup()">+ Add Folder</button>
+                             <button class="btn-s" style="background:#10b981; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;" onclick="playtestCurrentBlock()">▶️ Test Block</button>
+                             <button class="btn-s" style="background:#8b5cf6; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;" onclick="window.showStoryboard()">🗺️ Storyboard</button>`;
             blockIdInput.parentNode.insertBefore(ctr, blockIdInput.nextSibling);
         }
 
@@ -706,7 +826,7 @@ window.renderEditor = function() {
     if (!document.getElementById('block-search-input')) {
         document.getElementById('ed-blocks-menu').innerHTML = `
             <div style="margin-bottom: 10px;">
-                <input type="text" id="block-search-input" placeholder="Search blocks..." oninput="updateBlockSearch()" style="width:100%; padding:6px; box-sizing:border-box; border-radius:4px; border:1px solid #ccc;">
+                <input type="text" id="block-search-input" placeholder="Search blocks..." oninput="updateBlockSearch()" style="width:100%;  box-sizing:border-box; border-radius:4px; border:1px solid #ccc;">
             </div>
             <div id="block-list-container"></div>
         `;
@@ -724,7 +844,7 @@ window.renderEditor = function() {
 };
 
 window.getLogicUI = function(prefix, i, obj, type, updateFunc) {
-    if (type === 'flag') return `<div class="range-container" style="flex:1;"><span style="font-size:0.7rem; color:#64748b; margin-right:4px;">Is:</span><select style="border:none; flex:1; font-weight:bold; background:transparent;" onchange="${updateFunc}('${i}', 'reqMin', parseInt(this.value)); ${updateFunc}('${i}', 'reqMax', parseInt(this.value));"><option value="1" ${obj.reqMin === 1 ? 'selected' : ''}> On</option><option value="0" ${obj.reqMin === 0 ? 'selected' : ''}> Off</option></select></div>`;
+    if (type === 'flag') return `<div class="range-container" style="flex:1;"><span style="font-size:0.8rem; color:#64748b; margin-right:4px;">Is:</span><select style="border:none; flex:1; font-weight:bold; background:transparent;" onchange="${updateFunc}('${i}', 'reqMin', parseInt(this.value)); ${updateFunc}('${i}', 'reqMax', parseInt(this.value));"><option value="1" ${obj.reqMin === 1 ? 'selected' : ''}> On</option><option value="0" ${obj.reqMin === 0 ? 'selected' : ''}> Off</option></select></div>`;
     return `<div class="range-container"><input type="number" class="range-input" value="${obj.reqMin || 0}" onchange="${updateFunc}('${i}', 'reqMin', parseInt(this.value))"><span style="color:#94a3b8; font-weight:bold; font-size:0.8rem;">to</span><input type="number" class="range-input" value="${obj.reqMax || 0}" onchange="${updateFunc}('${i}', 'reqMax', parseInt(this.value))"></div>`;
 };
 
@@ -775,9 +895,9 @@ window.updateBlockSearch = function() {
         let isExpanded = term !== '' || window.expandedGroups[grp]; 
 
         listHtml += `<div style="background:#334155; color:white; padding:6px 10px; margin-top:8px; border-radius:4px; cursor:pointer; font-size:0.8rem; font-weight:bold; display:flex; justify-content:space-between; align-items:center;" onclick="toggleGroup('${grp}')">
-            <span>📁 ${grp} <span style="font-size:0.65rem; color:#94a3b8; margin-left:4px;">(${grpBlocks.length})</span></span>
+            <span>📁 ${grp} <span style="font-size:0.8rem; color:#94a3b8; margin-left:4px;">(${grpBlocks.length})</span></span>
             <div style="display:flex; gap:8px; align-items:center;">
-                <button onclick="event.stopPropagation(); addBlock('${grp}')" style="background:#475569; color:white; border:1px solid #64748b; border-radius:4px; font-size:0.65rem; padding:2px 6px; cursor:pointer; transition: 0.2s;" onmouseover="this.style.background='#64748b'" onmouseout="this.style.background='#475569'">+ Block</button>
+                <button onclick="event.stopPropagation(); addBlock('${grp}')" style="background:#475569; color:white; border:1px solid #64748b; border-radius:4px; font-size:0.8rem;  cursor:pointer; transition: 0.2s;" onmouseover="this.style.background='#64748b'" onmouseout="this.style.background='#475569'">+ Block</button>
                 <span style="width:12px; text-align:center;">${isExpanded ? '▼' : '▶'}</span>
             </div>
         </div>`;
@@ -785,12 +905,12 @@ window.updateBlockSearch = function() {
         if (isExpanded) {
             listHtml += `<div style="padding-left:10px; border-left:2px solid #cbd5e1; margin-left:5px;">`;
             listHtml += grpBlocks.map(m => `
-                <div class="block-menu-item" style="display:flex; justify-content:space-between; align-items:center; background:${m.originalIndex === bIdx ? 'var(--p)' : '#f1f5f9'}; color:${m.originalIndex === bIdx ? 'white' : 'black'}; margin-top:4px; padding:6px; border-radius:4px; border:1px solid #e2e8f0;">
+                <div class="block-menu-item" style="display:flex; justify-content:space-between; align-items:center; background:${m.originalIndex === bIdx ? 'var(--p)' : '#f1f5f9'}; color:${m.originalIndex === bIdx ? 'white' : 'black'}; margin-top:4px;  border-radius:4px; border:1px solid #e2e8f0;">
                     <span onclick="setActiveBlock(${m.originalIndex})" style="flex-grow:1; cursor:pointer; font-size:0.85rem;">${m.blk.id}</span>
                     ${story.blocks.length > 1 ? `<span class="remove-blk-btn" onclick="removeBlock(${m.originalIndex})" style="cursor:pointer; font-weight:bold; padding:0 5px; color:${m.originalIndex === bIdx ? '#fca5a5' : '#ef4444'};">×</span>` : ''}
                 </div>
             `).join('');
-            if (grpBlocks.length === 0) listHtml += `<div style="font-size:0.7rem; color:#94a3b8; padding:5px;">No blocks.</div>`;
+            if (grpBlocks.length === 0) listHtml += `<div style="font-size:0.8rem; color:#94a3b8; padding:5px;">No blocks.</div>`;
             listHtml += `</div>`;
         }
     });
@@ -840,14 +960,14 @@ window.renderExtraTextEditor = function() {
 
         let logicSelect = '';
             if (extra.reqs && extra.reqs.length > 1) {
-                logicSelect = `<select style="margin-left: 10px; padding: 2px; font-size: 0.65rem; border:1px solid #cbd5e1; border-radius:4px;" onchange="updateExtraText(${i}, 'reqLogic', this.value)">
+                logicSelect = `<select style="margin-left: 10px;  font-size: 0.65rem; border:1px solid #cbd5e1; border-radius:4px;" onchange="updateExtraText(${i}, 'reqLogic', this.value)">
                     <option value="AND" ${extra.reqLogic !== 'OR' ? 'selected' : ''}>ALL (AND)</option>
                     <option value="OR" ${extra.reqLogic === 'OR' ? 'selected' : ''}>ANY (OR)</option>
                 </select>`;
             }
 
-            let reqsHTML = `<div style="padding:10px; margin-bottom:10px;">
-                <label style="font-size:0.65rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Conditions ${logicSelect}</label>`;
+            let reqsHTML = `<div style="padding:15px; margin-bottom:15px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+                <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Conditions ${logicSelect}</label>`;
 
             if (extra.reqs) {
                 extra.reqs.forEach((r, rIdx) => {
@@ -863,7 +983,7 @@ window.renderExtraTextEditor = function() {
                             <option value="==" ${r.op==='=='?'selected':''}>Is</option>
                             <option value="!=" ${r.op==='!='?'selected':''}>Is Not</option>
                         </select>`;
-                        vals = `<input type="text" style="flex:1; width:50px; border: 1px solid #ddd; border-radius: 4px; padding: 4px;" value="${r.val}" onchange="updateExtraReq(${i}, ${rIdx}, 'val', this.value)">`;
+                        vals = `<input type="text" style="flex:1; width:50px; border: 1px solid #ddd; border-radius: 4px; " value="${r.val}" onchange="updateExtraReq(${i}, ${rIdx}, 'val', this.value)">`;
                     } else {
                         ops = `<select style="flex:1; border: 1px solid #ddd; border-radius: 4px;" onchange="updateExtraReq(${i}, ${rIdx}, 'op', this.value)">
                             <option value="has" ${r.op==='has'?'selected':''}>Has</option>
@@ -872,19 +992,19 @@ window.renderExtraTextEditor = function() {
                             <option value="==" ${r.op==='=='?'selected':''}>==</option>
                             <option value="!=" ${r.op==='!='?'selected':''}>!=</option>
                         </select>`;
-                        if (r.op !== 'has') vals = `<input type="number" style="flex:1; width:50px; border: 1px solid #ddd; border-radius: 4px; padding: 4px;" value="${r.val}" onchange="updateExtraReq(${i}, ${rIdx}, 'val', parseInt(this.value))">`;
+                        if (r.op !== 'has') vals = `<input type="number" style="flex:1; width:50px; border: 1px solid #ddd; border-radius: 4px; " value="${r.val}" onchange="updateExtraReq(${i}, ${rIdx}, 'val', parseInt(this.value))">`;
                     }
-                    reqsHTML += `<div style="display:flex; gap:5px; margin-top:5px; align-items:center;">
-                        <select style="flex:1; border: 1px solid #ddd; border-radius: 4px; padding: 4px;" onchange="updateExtraReq(${i}, ${rIdx}, 'var', this.value)">
+                    reqsHTML += `<div class="effect-row">
+                        <select style="flex:1; border: 1px solid #ddd; border-radius: 4px; " onchange="updateExtraReq(${i}, ${rIdx}, 'var', this.value)">
                             <option value="">- Var -</option>
                             ${vOpt.replace(`value="${r.var}"`, `value="${r.var}" selected`)}
                         </select>
                         ${r.var ? ops : ''} ${r.var && vals ? vals : ''}
-                        <button class="btn-d" style="width:auto; margin:0; padding:4px 8px;" onclick="removeExtraReq(${i}, ${rIdx})">🗑</button>
+                        <button class="btn-d" style="width:auto; margin:0; " onclick="removeExtraReq(${i}, ${rIdx})">🗑</button>
                     </div>`;
                 });
             }
-            reqsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.6rem; padding:4px; width:100%;" onclick="addExtraReq(${i})">+ Add Condition</button></div>`;
+            reqsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.8rem;  width:100%;" onclick="addExtraReq(${i})">+ Add Condition</button></div>`;
 
             html += `<div class="card" style="border-left: 4px solid var(--p); background: #fcfcfc; margin-bottom: 15px;">
                 ${reqsHTML}
@@ -950,31 +1070,31 @@ window.renderChoices = function() {
         
         
         
-        let effectsHTML = `<div style="grid-column: span 2; background:#f1f5f9; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;">
-            <label style="font-size:0.65rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Give & Take Effects</label>`;
+        let effectsHTML = `<div class="sub-panel" style="background:#f1f5f9; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;">
+            <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Give & Take Effects</label>`;
         (c.effects || []).forEach((eff, eIdx) => {
-            effectsHTML += `<div style="display:flex; gap:5px; margin-top:5px; align-items:center;">
-                <select style="width:60px; padding: 4px; border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'type', this.value)">
+            effectsHTML += `<div class="effect-row">
+                <select style="min-width:60px; max-width:120px;  border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'type', this.value)">
                     <option value="give" ${eff.type === 'give' ? 'selected' : ''}>Give</option>
                     <option value="take" ${eff.type === 'take' ? 'selected' : ''}>Take</option>
                 </select>
-                <select style="flex:1; padding: 4px; border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'var', this.value)">
+                <select style="flex:1;  border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'var', this.value)">
                     <option value="">- Var -</option>
                     ${vOpt.replace(`value="${eff.var}"`, `value="${eff.var}" selected`)}
                 </select>
-                <input type="number" style="width:60px; padding: 4px; border:1px solid #ddd; border-radius:4px;" value="${eff.amt || 0}" onchange="updateChoiceEffect(${i}, ${eIdx}, 'amt', parseInt(this.value))">
-                <button class="btn-d" style="width:auto; margin:0; padding:4px 8px;" onclick="removeChoiceEffect(${i}, ${eIdx})">🗑</button>
+                <input type="number" style="min-width:60px; max-width:120px;  border:1px solid #ddd; border-radius:4px;" value="${eff.amt || 0}" onchange="updateChoiceEffect(${i}, ${eIdx}, 'amt', parseInt(this.value))">
+                <button class="btn-d" style="width:auto; margin:0; " onclick="removeChoiceEffect(${i}, ${eIdx})">🗑</button>
             </div>`;
         });
-        effectsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.6rem; padding:4px; width:100%;" onclick="addChoiceEffect(${i})">+ Add Effect</button></div>`;
+        effectsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.8rem;  width:100%;" onclick="addChoiceEffect(${i})">+ Add Effect</button></div>`;
         let logicSelect = '';
         if (c.reqs && c.reqs.length > 1) {
-            logicSelect = `<select style="margin-left: 10px; padding: 2px; font-size: 0.65rem; border:1px solid #cbd5e1; border-radius:4px;" onchange="updateChoice(${i}, 'reqLogic', this.value)">
+            logicSelect = `<select style="margin-left: 10px;  font-size: 0.65rem; border:1px solid #cbd5e1; border-radius:4px;" onchange="updateChoice(${i}, 'reqLogic', this.value)">
                     <option value="AND" ${c.reqLogic !== 'OR' ? 'selected' : ''}>ALL (AND)</option>
                     <option value="OR" ${c.reqLogic === 'OR' ? 'selected' : ''}>ANY (OR)</option>
                 </select>`;
         }
-        let reqsHTML = `<div style="grid-column: span 2; background:#f8fafc; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;"><label style="font-size:0.65rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Requirements ${logicSelect}</label>`;
+        let reqsHTML = `<div class="sub-panel" style="background:#f8fafc; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;"><label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Requirements ${logicSelect}</label>`;
         (c.reqs || []).forEach((r, rIdx) => {
             let t = story.globalVars[r.var]?.type;
             let ops = '', vals = '';
@@ -987,26 +1107,26 @@ window.renderChoices = function() {
                 ops = `<select style="flex:1;" onchange="updateReq(${i}, ${rIdx}, 'op', this.value)"><option value="has" ${r.op==='has'?'selected':''}>Has</option><option value=">=" ${r.op==='>='?'selected':''}>&ge;</option><option value="<=" ${r.op==='<='?'selected':''}>&le;</option><option value="=" ${r.op==='='?'selected':''}>=</option><option value="!=" ${r.op==='!='?'selected':''}>&ne;</option></select>`;
                 if(r.op !== 'has') vals = `<input type="number" style="flex:1; width:50px;" value="${r.val}" onchange="updateReq(${i}, ${rIdx}, 'val', parseInt(this.value))">`;
             }
-            reqsHTML += `<div style="display:flex; gap:5px; margin-top:5px; align-items:center;">
+            reqsHTML += `<div class="effect-row">
                 <select style="flex:1;" onchange="updateReq(${i}, ${rIdx}, 'var', this.value)"><option value="">- Var -</option>${vOpt.replace(`value="${r.var}"`, `value="${r.var}" selected`)}</select>
                 ${r.var ? ops : ''}
                 ${r.var && vals ? vals : ''}
-                <button class="btn-d" style="width:auto; margin:0; padding:4px 8px;" onclick="removeReq(${i}, ${rIdx})">✕</button>
+                <button class="btn-d" style="width:auto; margin:0; " onclick="removeReq(${i}, ${rIdx})">✕</button>
             </div>`;
         });
-        reqsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.6rem; padding:4px; width:100%;" onclick="addReq(${i})">+ Add Requirement</button></div>`;
+        reqsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.8rem;  width:100%;" onclick="addReq(${i})">+ Add Requirement</button></div>`;
 
         return `<div class="card" style="border: 1px solid #ddd; background:#fafafa; margin-top:10px;">
     <input value="${c.txt}" oninput="updateChoice(${i}, 'txt', this.value)" placeholder="Choice Text" style="width:100%; margin-bottom:10px; font-weight:bold;">
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; background:#e2e8f0; padding:15px; border-radius:8px;">
+    <div class="choice-grid">
         ${effectsHTML}
         ${reqsHTML}
-        <div><label style="font-size:0.6rem; font-weight:bold;">Persistence</label><select onchange="updateChoice(${i}, 'persistFlag', this.value)"><option value="">Set Flag On...</option>${vOpt.replace(`value="${c.persistFlag}"`, `value="${c.persistFlag}" selected`)}</select><label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label></div>
-        <div><label style="font-size:0.6rem; font-weight:bold;">Max Uses</label><input type="number" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))"><label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
-            <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.6rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label style="font-size:0.6rem;">Add Time Phases: <input type="number" style="width:40px; padding:2px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.6rem;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>
+        <div><label style="font-size:0.8rem; font-weight:bold;">Persistence</label><select onchange="updateChoice(${i}, 'persistFlag', this.value)"><option value="">Set Flag On...</option>${vOpt.replace(`value="${c.persistFlag}"`, `value="${c.persistFlag}" selected`)}</select><label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label></div>
+        <div><label style="font-size:0.8rem; font-weight:bold;">Max Uses</label><input type="number" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))"><label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
+            <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.8rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="font-size:0.8rem; cursor:help;">Add Time Phases: <input type="number" title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="min-width:60px; max-width:100px; padding:2px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.8rem;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>
         </div>
-        <div><label style="font-size:0.6rem; font-weight:bold;">Prompt Name Change</label><select onchange="updateChoice(${i}, 'promptChar', this.value)"><option value="">None</option>${cOpt.replace(`value="${c.promptChar}"`, `value="${c.promptChar}" selected`)}</select></div>
-        <div style="grid-column: span 2;"><label style="font-size:0.6rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.75rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
+        <div><label style="font-size:0.8rem; font-weight:bold;">Prompt Name Change</label><select onchange="updateChoice(${i}, 'promptChar', this.value)"><option value="">None</option>${cOpt.replace(`value="${c.promptChar}"`, `value="${c.promptChar}" selected`)}</select></div>
+        <div class="sub-panel"><label style="font-size:0.8rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.85rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
     </div>
     <select style="margin-top:10px; width:100%;" onchange="updateChoice(${i}, 'next', this.value)"><option value="">Stay here...</option>${story.blocks.map(bl => `<option value="${bl.id}" ${bl.id === c.next ? 'selected' : ''}>→ ${bl.id}</option>`).join('')}</select>
     <button class="btn-d" onclick="removeChoice(${i})" style="margin-top:10px; width:100%;">Remove Choice</button>
@@ -1078,8 +1198,8 @@ window.openInventoryModal = function() {
     let w = pState.equipped.weapon || "None";
     let a = pState.equipped.armor || "None";
     document.getElementById('rpg-equip-display').innerHTML = `
-        <div style="font-size:0.85rem; margin-bottom:6px; display:flex; justify-content:space-between;"><strong>Weapon:</strong> <span>${w} ${w!=='None'?`<button style="font-size:0.6rem; padding:2px 4px; cursor:pointer; background:#ef4444; color:white; border:none; border-radius:3px;" onclick="unequipItem('weapon')">Unequip</button>`:''}</span></div>
-        <div style="font-size:0.85rem; display:flex; justify-content:space-between;"><strong>Armor:</strong> <span>${a} ${a!=='None'?`<button style="font-size:0.6rem; padding:2px 4px; cursor:pointer; background:#ef4444; color:white; border:none; border-radius:3px;" onclick="unequipItem('armor')">Unequip</button>`:''}</span></div>
+        <div style="font-size:0.85rem; margin-bottom:6px; display:flex; justify-content:space-between;"><strong>Weapon:</strong> <span>${w} ${w!=='None'?`<button style="font-size:0.8rem; padding:2px 4px; cursor:pointer; background:#ef4444; color:white; border:none; border-radius:3px;" onclick="unequipItem('weapon')">Unequip</button>`:''}</span></div>
+        <div style="font-size:0.85rem; display:flex; justify-content:space-between;"><strong>Armor:</strong> <span>${a} ${a!=='None'?`<button style="font-size:0.8rem; padding:2px 4px; cursor:pointer; background:#ef4444; color:white; border:none; border-radius:3px;" onclick="unequipItem('armor')">Unequip</button>`:''}</span></div>
     `;
 
     
@@ -1094,7 +1214,7 @@ window.openInventoryModal = function() {
                 }
             }
             if (statsText.length > 0) {
-                passivesHtml += `<span style="background:#fef3c7; color:#b45309; padding:4px 8px; border-radius:4px; font-size:0.7rem; border:1px solid #fde68a; font-weight:bold; box-shadow:0 1px 2px rgba(0,0,0,0.05);">⚡ ${k} (${statsText.join(', ')})</span>`;
+                passivesHtml += `<span style="background:#fef3c7; color:#b45309;  border-radius:4px; font-size:0.8rem; border:1px solid #fde68a; font-weight:bold; box-shadow:0 1px 2px rgba(0,0,0,0.05);">⚡ ${k} (${statsText.join(', ')})</span>`;
             }
         }
     }
@@ -1109,12 +1229,12 @@ window.openInventoryModal = function() {
             if (itm.type === 'weapon' || itm.type === 'armor') {
                 let isEq = (pState.equipped.weapon === k || pState.equipped.armor === k);
                 if (!isEq) {
-                    actionBtn = `<button style="padding:4px 10px; font-size:0.7rem; background:#3b82f6; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="equipItem('${k}', '${itm.type}')">Equip</button>`;
+                    actionBtn = `<button style="padding:4px 10px; font-size:0.8rem; background:#3b82f6; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="equipItem('${k}', '${itm.type}')">Equip</button>`;
                 } else {
-                    actionBtn = `<span style="font-size:0.7rem; color:#10b981; font-weight:bold;">Equipped</span>`;
+                    actionBtn = `<span style="font-size:0.8rem; color:#10b981; font-weight:bold;">Equipped</span>`;
                 }
             } else if (itm.type === 'consumable') {
-                actionBtn = `<button style="padding:4px 10px; font-size:0.7rem; background:#10b981; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="consumeItem('${k}')">Use</button>`;
+                actionBtn = `<button style="padding:4px 10px; font-size:0.8rem; background:#10b981; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="consumeItem('${k}')">Use</button>`;
             }
 
             let statsText = [];
@@ -1128,8 +1248,8 @@ window.openInventoryModal = function() {
 
             itemsHtml += `<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px; border-radius:4px; border:1px solid #cbd5e1;">
                 <div>
-                    <div style="font-weight:bold; font-size:0.8rem;">${k} <span style="font-size:0.7rem; color:#64748b; font-weight:normal;">x${count}</span></div>
-                    <div style="font-size:0.65rem; color:#475569;">${statsText.join(' | ')}</div>
+                    <div style="font-weight:bold; font-size:0.8rem;">${k} <span style="font-size:0.8rem; color:#64748b; font-weight:normal;">x${count}</span></div>
+                    <div style="font-size:0.8rem; color:#475569;">${statsText.join(' | ')}</div>
                 </div>
                 ${actionBtn}
             </div>`;
@@ -1314,17 +1434,17 @@ window.removeChoice = function(i) { story.blocks[bIdx].choices.splice(i, 1); win
 window.renderNPCSubVars = function(charKey, v) {
     let subHTML = `<div style="background:#f8fafc; border:1px dashed #cbd5e1; margin-top:10px; padding:10px; border-radius:6px;">`;
     for (let sKey in v.stats) {
-        subHTML += `<div style="display:flex; gap:5px; margin-bottom:6px; align-items:center;"><input style="flex:1; font-size:0.75rem; padding:4px;" value="${sKey}" onchange="renameNPCStat('${charKey}', '${sKey}', this.value)"><input style="width:50px; font-size:0.75rem; padding:4px;" type="number" value="${v.stats[sKey]}" onchange="story.globalVars['${charKey}'].stats['${sKey}']=parseInt(this.value)"><button onclick="deleteNPCStat('${charKey}', '${sKey}')" style="background:none; border:none; color:#94a3b8;">✕</button></div>`;
+        subHTML += `<div style="display:flex; gap:5px; margin-bottom:6px; align-items:center;"><input style="flex:1; font-size:0.85rem; " value="${sKey}" onchange="renameNPCStat('${charKey}', '${sKey}', this.value)"><input style="min-width:60px; max-width:100px; font-size:0.85rem; " type="number" value="${v.stats[sKey]}" onchange="story.globalVars['${charKey}'].stats['${sKey}']=parseInt(this.value)"><button onclick="deleteNPCStat('${charKey}', '${sKey}')" style="background:none; border:none; color:#94a3b8;">✕</button></div>`;
     }
-    subHTML += `<button class="btn-s" style="width:100%; font-size:0.65rem;" onclick="addNPCStat('${charKey}')">+ Add Stat</button></div>`;
+    subHTML += `<button class="btn-s" style="width:100%; font-size:0.8rem;" onclick="addNPCStat('${charKey}')">+ Add Stat</button></div>`;
     return subHTML;
 };
 
 window.renderVariableHelper = function() { 
     let html = `<div style="margin-top:8px; display:flex; align-items:center; gap:10px; background:#f0f9ff; padding:8px; border-radius:6px; border:1px solid #bae6fd;">
-        <label style="font-size:0.7rem; font-weight:bold; color:#0369a1;">Story Text Tools:</label>
-        <button class="btn-s" style="font-size:0.7rem; padding:4px 10px; margin:0;" onclick="openVariableInsertModal()">➕ Insert Variable</button>
-        <span style="font-size:0.65rem; color:#64748b; margin-left:10px;">Format: **bold**, *italic*, [color:red]text[/color]</span>
+        <label style="font-size:0.8rem; font-weight:bold; color:#0369a1;">Story Text Tools:</label>
+        <button class="btn-s" style="font-size:0.8rem; padding:4px 10px; margin:0;" onclick="openVariableInsertModal()">➕ Insert Variable</button>
+        <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">Format: **bold**, *italic*, [color:red]text[/color]</span>
     </div>`; 
     document.getElementById('var-helper-container').innerHTML = html; 
 };
@@ -1338,19 +1458,19 @@ window.openVariableInsertModal = function() {
 
     m.innerHTML = `<div style="background:white; padding:20px; border-radius:8px; width:350px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.5);">
         <h3 style="margin-top:0; color:#1e293b;">Insert Variable</h3>
-        <p style="font-size:0.75rem; color:#475569; margin-top:0; margin-bottom:10px;">Select a variable to inject it dynamically into your story text.</p>
+        <p style="font-size:0.85rem; color:#475569; margin-top:0; margin-bottom:10px;">Select a variable to inject it dynamically into your story text.</p>
 
         <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px; background:#f1f5f9; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
             <div style="display:flex; gap:10px; align-items:center;">
                 <label style="font-size:0.8rem; font-weight:bold; color:#334155;">View:</label>
-                <select style="flex:1; padding:6px; font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8;" onchange="window.insertVarFilter=this.value; window.renderInsertVarList();">
+                <select style="flex:1;  font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8;" onchange="window.insertVarFilter=this.value; window.renderInsertVarList();">
                     <option value="stat">Stats</option>
                     <option value="item">Items</option>
                     <option value="flag">Flags</option>
                     <option value="npc">NPCs</option>
                 </select>
             </div>
-            <input type="text" id="insert-var-search" placeholder="Search variables..." oninput="window.filterInsertVarList()" style="padding:6px; font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8; width:100%; box-sizing:border-box;">
+            <input type="text" id="insert-var-search" placeholder="Search variables..." oninput="window.filterInsertVarList()" style=" font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8; width:100%; box-sizing:border-box;">
         </div>
 
         <div id="insert-var-list" style="overflow-y:auto; flex:1; padding-right:5px; border-top:1px solid #e2e8f0; padding-top:10px;">
@@ -1372,7 +1492,7 @@ window.renderInsertVarList = function() {
         const color = window.getTypeColor(effType);
         html += `<div class="insert-var-item" data-var-name="${k.toLowerCase()}" style="padding:10px; margin-bottom:5px; background:#f8fafc; border-left:4px solid ${color}; border-radius:4px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:0.2s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f8fafc'" onclick="insertVarAtCursor('{${k}}'); document.getElementById('var-insert-modal').remove();">
             <span style="font-weight:bold; font-size:0.85rem;">${k}</span>
-            <span style="font-size:0.6rem; color:#64748b; text-transform:uppercase;">${effType}</span>
+            <span style="font-size:0.8rem; color:#64748b; text-transform:uppercase;">${effType}</span>
         </div>`;
     }
     document.getElementById('insert-var-list').innerHTML = html || '<p style="font-size:0.8rem; color:#94a3b8; text-align:center;">No variables found in this category.</p>';
@@ -1444,8 +1564,8 @@ window.openEditor = function() {
         <input id="ns-title" type="text" placeholder="Story Title..." style="width:100%; padding:10px; margin-bottom:15px; box-sizing:border-box; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;">
         <p style="font-size:0.85rem; color:#475569; margin-bottom:15px;">Does this story require the <strong>RPG Engine</strong>?<br>(Custom Stats, Items, and Combat System)</p>
         <div style="display:flex; gap:10px;">
-            <button class="btn-d" style="flex:1; margin:0; padding:12px; background:#64748b;" onclick="initNewStory(false)">No<br><small style="font-size:0.6rem;">(Visual Novel)</small></button>
-            <button class="btn-p" style="flex:1; margin:0; padding:12px; background:#b91c1c;" onclick="initNewStory(true)">Yes<br><small style="font-size:0.6rem;">(Full RPG)</small></button>
+            <button class="btn-d" style="flex:1; margin:0; padding:12px; background:#64748b;" onclick="initNewStory(false)">No<br><small style="font-size:0.8rem;">(Visual Novel)</small></button>
+            <button class="btn-p" style="flex:1; margin:0; padding:12px; background:#b91c1c;" onclick="initNewStory(true)">Yes<br><small style="font-size:0.8rem;">(Full RPG)</small></button>
         </div>
         <button class="btn-s" style="width:100%; margin-top:10px; background:none; border:none; color:#94a3b8; cursor:pointer;" onclick="document.getElementById('new-story-modal').remove()">Cancel</button>
     </div>`;
@@ -1664,7 +1784,7 @@ window.pmShowContinue = async function() {
     for (let i = 1; i <= 3; i++) {
         const save = saves.find(s => (s.SlotNumber || 1) === i);
         if (save) {
-            html += `<div class="slot-row"><div style="flex:1;"><div style="font-weight:bold; font-size:0.9rem; color:var(--p);">Slot ${i}</div><div style="font-size:0.75rem; color:#475569; font-weight:600;">Block: ${save.CurrentBlock}</div><div style="font-size:0.7rem; color:#94a3b8;">${save.Timestamp || 'Legacy Save'}</div></div><div style="display:flex; gap:8px;"><button class="btn-p" style="padding:6px 12px; font-size:0.8rem; border-radius:4px;" onclick="pmLoadGame(${save.Save_ID}, ${i})">Load</button><button class="btn-d" style="padding:6px 10px; margin:0; font-size:0.8rem; border-radius:4px; width:auto;" onclick="pmDeleteSave(${save.Save_ID})">🗑</button></div></div>`;
+            html += `<div class="slot-row"><div style="flex:1;"><div style="font-weight:bold; font-size:0.9rem; color:var(--p);">Slot ${i}</div><div style="font-size:0.85rem; color:#475569; font-weight:600;">Block: ${save.CurrentBlock}</div><div style="font-size:0.8rem; color:#94a3b8;">${save.Timestamp || 'Legacy Save'}</div></div><div style="display:flex; gap:8px;"><button class="btn-p" style="padding:6px 12px; font-size:0.8rem; border-radius:4px;" onclick="pmLoadGame(${save.Save_ID}, ${i})">Load</button><button class="btn-d" style="padding:6px 10px; margin:0; font-size:0.8rem; border-radius:4px; width:auto;" onclick="pmDeleteSave(${save.Save_ID})">🗑</button></div></div>`;
         } else {
             html += `<div class="slot-row" style="background:#f1f5f9; justify-content:center; color:#94a3b8; font-size:0.85rem;">- Empty Slot ${i} -</div>`;
         }
@@ -1775,9 +1895,9 @@ window.renderInventory = function() {
 
     let html = `
         <div style="display:flex; gap:6px; margin-bottom:12px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 10px;">
-            <button class="btn-s" style="flex:1; padding:6px; ${window.activeBackpackTab==='items'?'background:#4f46e5;color:white;border-color:#4f46e5;':'color:#cbd5e1;'}" onclick="window.activeBackpackTab='items'; window.renderInventory();">Items</button>
-            <button class="btn-s" style="flex:1; padding:6px; ${window.activeBackpackTab==='equip'?'background:#4f46e5;color:white;border-color:#4f46e5;':'color:#cbd5e1;'}" onclick="window.activeBackpackTab='equip'; window.renderInventory();">Equip</button>
-            <button class="btn-s" style="flex:1; padding:6px; ${window.activeBackpackTab==='stats'?'background:#4f46e5;color:white;border-color:#4f46e5;':'color:#cbd5e1;'}" onclick="window.activeBackpackTab='stats'; window.renderInventory();">Stats</button>
+            <button class="btn-s" style="flex:1;  ${window.activeBackpackTab==='items'?'background:#4f46e5;color:white;border-color:#4f46e5;':'color:#cbd5e1;'}" onclick="window.activeBackpackTab='items'; window.renderInventory();">Items</button>
+            <button class="btn-s" style="flex:1;  ${window.activeBackpackTab==='equip'?'background:#4f46e5;color:white;border-color:#4f46e5;':'color:#cbd5e1;'}" onclick="window.activeBackpackTab='equip'; window.renderInventory();">Equip</button>
+            <button class="btn-s" style="flex:1;  ${window.activeBackpackTab==='stats'?'background:#4f46e5;color:white;border-color:#4f46e5;':'color:#cbd5e1;'}" onclick="window.activeBackpackTab='stats'; window.renderInventory();">Stats</button>
         </div>
     `;
 
@@ -1800,7 +1920,7 @@ window.renderInventory = function() {
             if (itm && (itm.type === 'weapon' || itm.type === 'armor')) continue; 
 
             hasItems = true;
-            let meta = `<span style="font-size:0.75rem; color:#fbbf24; font-weight:bold;">x${v.val}</span>`;
+            let meta = `<span style="font-size:0.85rem; color:#fbbf24; font-weight:bold;">x${v.val}</span>`;
             let button = '';
 
             if (itm && (itm.type === 'consumable' || itm.type === 'useable')) {
@@ -1816,13 +1936,13 @@ window.renderInventory = function() {
                 button = `
                     <button
                         class="btn-s"
-                        style="padding:4px 10px; margin:0; font-size:0.7rem; border:none; border-radius:4px; ${cd>0 || outOfUses ? 'background:#475569; color:#94a3b8; cursor:not-allowed;' : 'background:#10b981; color:white; cursor:pointer;'}"
+                        style="padding:4px 10px; margin:0; font-size:0.8rem; border:none; border-radius:4px; ${cd>0 || outOfUses ? 'background:#475569; color:#94a3b8; cursor:not-allowed;' : 'background:#10b981; color:white; cursor:pointer;'}"
                         onclick="${cd>0 || outOfUses ? '' : `window.useRPGItem('${k}')`}"
                     >${label}</button>
                 `;
 
                 if (itm.type === 'useable' && itm.maxUses > 0) {
-                    meta += ` <span style="font-size:0.7rem; color:#94a3b8;">(${pState.usesLeft[k]}/${itm.maxUses})</span>`;
+                    meta += ` <span style="font-size:0.8rem; color:#94a3b8;">(${pState.usesLeft[k]}/${itm.maxUses})</span>`;
                 }
             }
 
@@ -1834,10 +1954,10 @@ window.renderInventory = function() {
     if (window.activeBackpackTab === 'equip') {
         let wName = (pState.equipped && pState.equipped.weapon && pState.vars[pState.equipped.weapon] && pState.vars[pState.equipped.weapon].val > 0) ? pState.equipped.weapon : null;
         let aName = (pState.equipped && pState.equipped.armor && pState.vars[pState.equipped.armor] && pState.vars[pState.equipped.armor].val > 0) ? pState.equipped.armor : null;
-        html += row('Weapon', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${wName || 'None'}</span> ${wName ? `<button style="padding:4px 8px; font-size:0.7rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('weapon')">Unequip</button>` : ''}`);
-        html += row('Armor', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${aName || 'None'}</span> ${aName ? `<button style="padding:4px 8px; font-size:0.7rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('armor')">Unequip</button>` : ''}`);
+        html += row('Weapon', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${wName || 'None'}</span> ${wName ? `<button style=" font-size:0.8rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('weapon')">Unequip</button>` : ''}`);
+        html += row('Armor', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${aName || 'None'}</span> ${aName ? `<button style=" font-size:0.8rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('armor')">Unequip</button>` : ''}`);
 
-        html += `<div style="margin-top:15px; font-size:0.7rem; color:#94a3b8; font-weight:bold; text-transform:uppercase; border-bottom:1px solid #475569; padding-bottom:4px; margin-bottom:8px;">Available Gear</div>`;
+        html += `<div style="margin-top:15px; font-size:0.8rem; color:#94a3b8; font-weight:bold; text-transform:uppercase; border-bottom:1px solid #475569; padding-bottom:4px; margin-bottom:8px;">Available Gear</div>`;
         let hasGear = false;
         for (let k in pState.vars) {
             const v = pState.vars[k];
@@ -1849,10 +1969,10 @@ window.renderInventory = function() {
             const isEquipped = pState.equipped.weapon === k || pState.equipped.armor === k;
             hasGear = true;
             html += row(
-                `${k} <span style="font-size:0.65rem; color:#94a3b8;">(${itm.type})</span>`,
+                `${k} <span style="font-size:0.8rem; color:#94a3b8;">(${itm.type})</span>`,
                 isEquipped
-                    ? `<span style="font-size:0.7rem; color:#10b981; font-weight:bold;">Equipped</span>`
-                    : `<button style="padding:4px 10px; font-size:0.7rem; font-weight:bold; background:#3b82f6; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.equipItem('${k}', '${itm.type}')">Equip</button>`
+                    ? `<span style="font-size:0.8rem; color:#10b981; font-weight:bold;">Equipped</span>`
+                    : `<button style="padding:4px 10px; font-size:0.8rem; font-weight:bold; background:#3b82f6; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.equipItem('${k}', '${itm.type}')">Equip</button>`
             );
         }
         if (!hasGear) html += `<div style="font-size:0.8rem; color:#94a3b8; font-style:italic; text-align:center; padding:10px;">No gear available.</div>`;
@@ -1965,4 +2085,99 @@ window.useRPGItem = function(itemName) {
     window.showToast(`Used ${itemName}`, "good");
     window.renderInventory();
     window.renderStep();
+};
+
+
+window.showStoryboard = function() {
+    let m = document.getElementById('storyboard-modal');
+    if (!m) {
+        m = document.createElement('div');
+        m.id = 'storyboard-modal';
+        m.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.95); z-index:10000; display:flex; flex-direction:column;";
+
+        let header = document.createElement('div');
+        header.style.cssText = "padding:15px 20px; background:#1e293b; color:white; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,0.5);";
+        header.innerHTML = `
+            <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:10px;">🗺️ Story Flowchart</h2>
+            <button onclick="document.getElementById('storyboard-modal').style.display='none'" style="background:#ef4444; color:white; border:none; padding:6px 15px; border-radius:4px; cursor:pointer; font-weight:bold;">Close</button>
+        `;
+        m.appendChild(header);
+
+        let content = document.createElement('div');
+        content.id = 'storyboard-content';
+        content.style.cssText = "flex:1; overflow:auto; padding:20px; display:flex; justify-content:center; align-items:flex-start;";
+        m.appendChild(content);
+
+        document.body.appendChild(m);
+    }
+    m.style.display = 'flex';
+
+    const content = document.getElementById('storyboard-content');
+    content.innerHTML = `<div style="color:white; font-family:monospace;">Generating flowchart...</div>`;
+
+    // Generate Mermaid string
+    let defs = ["graph TD"];
+
+    // Process groups to create subgraphs
+    let groupedBlocks = {};
+    story.blocks.forEach(b => {
+        let g = b.group || 'Ungrouped';
+        if (!groupedBlocks[g]) groupedBlocks[g] = [];
+        groupedBlocks[g].push(b);
+    });
+
+    Object.keys(groupedBlocks).forEach((g, i) => {
+        let cleanG = g.replace(/[^a-zA-Z0-9]/g, '_');
+        defs.push(`    subgraph ${cleanG} [${g}]`);
+        groupedBlocks[g].forEach(b => {
+            let cleanId = b.id.replace(/[^a-zA-Z0-9_]/g, '_');
+            let label = b.id.length > 20 ? b.id.substring(0, 20) + '...' : b.id;
+            label = label.replace(/"/g, "'");
+            defs.push(`        ${cleanId}("${label}")`);
+        });
+        defs.push(`    end`);
+    });
+
+    // Process edges
+    story.blocks.forEach(b => {
+        let cleanId = b.id.replace(/[^a-zA-Z0-9_]/g, '_');
+        (b.choices || []).forEach(c => {
+            if (c.next) {
+                let cleanNext = c.next.replace(/[^a-zA-Z0-9_]/g, '_');
+                let edgeLabel = c.txt ? (c.txt.length > 15 ? c.txt.substring(0, 15) + '...' : c.txt) : '';
+                edgeLabel = edgeLabel.replace(/"/g, "'").trim();
+                if (edgeLabel) {
+                    defs.push(`    ${cleanId} -->|"${edgeLabel}"| ${cleanNext}`);
+                } else {
+                    defs.push(`    ${cleanId} --> ${cleanNext}`);
+                }
+            }
+        });
+    });
+
+    // Add styling
+    // Add styling - Dark theme override
+    defs.push("    classDef default fill:#334155,stroke:#94a3b8,stroke-width:2px,color:#f8fafc,rx:5,ry:5;");
+
+    let mmString = defs.join("\n");
+
+    if (window.mermaid) {
+        renderMermaid(mmString, content);
+    } else {
+        const script = document.createElement('script');
+        script.src = "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js";
+        script.onload = () => {
+            mermaid.initialize({ startOnLoad: false, theme: 'dark', maxTextSize: 90000 });
+            renderMermaid(mmString, content);
+        };
+        document.head.appendChild(script);
+    }
+
+    function renderMermaid(str, container) {
+        mermaid.render('storyboard-svg-' + Date.now(), str).then(({svg}) => {
+            container.innerHTML = svg;
+        }).catch(err => {
+            container.innerHTML = `<div style="color:#ef4444; background:#fee2e2; padding:15px; border-radius:6px; font-family:monospace;">Error rendering flowchart. Story might be too complex or contain invalid characters.<br><br>${err.message}</div>`;
+        });
+    }
 };
