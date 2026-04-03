@@ -264,24 +264,16 @@ async function loadStoryFromDB(storyId) {
         let extras = await idbReq(tx.objectStore('ExtraTexts').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
         for (let e of extras) {
             let parsedReqs = [];
-            if (e.Reqs_JSON) {
-                parsedReqs = JSON.parse(e.Reqs_JSON);
-            } else if (e.Req_Var) {
+            if (e.Reqs_JSON) { parsedReqs = JSON.parse(e.Reqs_JSON); } 
+            else if (e.Req_Var) {
                 parsedReqs.push({ var: e.Req_Var, op: '>=', val: e.Req_Min });
-                if (e.Req_Max !== undefined && e.Req_Max < 999999) {
-                    parsedReqs.push({ var: e.Req_Var, op: '<=', val: e.Req_Max });
-                }
+                if (e.Req_Max !== undefined && e.Req_Max < 999999) parsedReqs.push({ var: e.Req_Var, op: '<=', val: e.Req_Max });
             }
-            memBlock.extraTexts.push({
-                var: e.Req_Var, reqMin: e.Req_Min, reqMax: e.Req_Max, // keeping legacy fields for safety
-                reqs: parsedReqs,
-                reqLogic: e.Req_Logic || 'AND',
-                text: e.Text_Content
-            });
+            memBlock.extraTexts.push({ var: e.Req_Var, reqMin: e.Req_Min, reqMax: e.Req_Max, reqs: parsedReqs, reqLogic: e.Req_Logic || 'AND', text: e.Text_Content });
         }
         let choices = await idbReq(tx.objectStore('Choices').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
         for (let c of choices) {
-            let memChoice = { id: c.Choice_ID.toString(), txt: c.Choice_Text, next: c.Next_Block_Name, hideLocked: c.Hide_Locked, maxUses: c.Max_Uses, showUsage: c.Show_Usage, persistFlag: c.Persist_Flag, promptChar: c.Prompt_Char, lockedMsg: c.Locked_Msg, timeAdd: c.Time_Add !== undefined ? c.Time_Add : (c.Passes_Time === false ? 0 : 1), forceNextDay: !!c.Force_Next_Day, passTime: c.Passes_Time !== false, giveVar: '', giveAmt: 0, takeVar: '', takeAmt: 0, reqs: [], reqLogic: c.Req_Logic || 'AND' };
+            let memChoice = { id: c.Choice_ID.toString(), txt: c.Choice_Text, next: c.Next_Block_Name, hideLocked: c.Hide_Locked, maxUses: c.Max_Uses, showUsage: c.Show_Usage, persistFlag: c.Persist_Flag, promptChar: c.Prompt_Char, lockedMsg: c.Locked_Msg, timeAdd: c.Time_Add !== undefined ? c.Time_Add : (c.Passes_Time === false ? 0 : 1), forceNextDay: !!c.Force_Next_Day, passTime: c.Passes_Time !== false, effects: [], reqs: [], reqLogic: c.Req_Logic || 'AND' };
             if (c.Reqs_JSON) {
                 memChoice.reqs = JSON.parse(c.Reqs_JSON);
             } else if (c.Req_Var) {
@@ -291,9 +283,9 @@ async function loadStoryFromDB(storyId) {
                 }
             }
             let effects = await idbReq(tx.objectStore('ChoiceEffects').index('Choice_ID').getAll(c.Choice_ID));
+            memChoice.effects = [];
             for (let eff of effects) {
-                if (eff.Effect_Type === 'give') { memChoice.giveVar = eff.Variable_Name; memChoice.giveAmt = eff.Amount; }
-                if (eff.Effect_Type === 'take') { memChoice.takeVar = eff.Variable_Name; memChoice.takeAmt = eff.Amount; }
+                memChoice.effects.push({ type: eff.Effect_Type, var: eff.Variable_Name, amt: eff.Amount || 0 });
             }
             memBlock.choices.push(memChoice);
         }
@@ -337,8 +329,11 @@ async function saveStoryToDB(storyObj) {
         }
         for (let c of b.choices) {
             let cid = await idbReq(tx.objectStore('Choices').add({ StoryBlock_ID: bid, Choice_Text: c.txt, Next_Block_Name: c.next||'', Reqs_JSON: JSON.stringify(c.reqs || []), Req_Logic: c.reqLogic || 'AND', Hide_Locked: !!c.hideLocked, Max_Uses: c.maxUses||0, Show_Usage: c.showUsage !== false, Persist_Flag: c.persistFlag||'', Prompt_Char: c.promptChar||'', Locked_Msg: c.lockedMsg||'', Passes_Time: c.passTime !== false, Time_Add: c.timeAdd !== undefined ? c.timeAdd : 1, Force_Next_Day: !!c.forceNextDay }));
-            if (c.giveVar) tx.objectStore('ChoiceEffects').add({ Choice_ID: cid, Variable_Name: c.giveVar, Effect_Type: 'give', Amount: c.giveAmt||0 });
-            if (c.takeVar) tx.objectStore('ChoiceEffects').add({ Choice_ID: cid, Variable_Name: c.takeVar, Effect_Type: 'take', Amount: c.takeAmt||0 });
+            if (c.effects) {
+                for (let eff of c.effects) {
+                    if (eff.var) tx.objectStore('ChoiceEffects').add({ Choice_ID: cid, Variable_Name: eff.var, Effect_Type: eff.type, Amount: eff.amt||0 });
+                }
+            }
         }
     }
     return new Promise((res) => { tx.oncomplete = () => res(sid); });
@@ -414,39 +409,54 @@ window.renderVarTable = function() {
 
     let eventHTML = '';
     if (story.useDayCycle) {
-        eventHTML = `<div style="margin-top:15px; background:#fffbeb; padding:10px; border-radius:6px; border:1px solid #fde68a;"><h4 style="margin:0 0 10px 0; font-size:0.8rem; color:#b45309;">📅 Daily Events</h4>`;
+        eventHTML = `<div style="margin-top:20px; background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #fde68a; box-shadow:0 2px 4px rgba(0,0,0,0.05);"><h4 style="margin:0 0 12px 0; font-size:0.9rem; color:#b45309; display:flex; align-items:center; gap:6px;">📅 Scheduled Daily Events</h4>`;
         (story.dailyEvents || []).forEach((ev, i) => {
             ev.type = ev.type || 'var';
             let actionHTML = '';
             if (ev.type === 'var') {
                 actionHTML = `
-                    <select style="flex:1; padding:2px; font-size:0.7rem;" onchange="updateDailyEvent(${i}, 'varName', this.value)">
-                        <option value="">- Var -</option>
-                        ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${ev.varName===v?'selected':''}>${v}</option>`).join('')}
-                    </select>
-                    <span style="font-size:0.7rem;">To</span>
-                    <input type="number" style="width:40px; padding:2px; font-size:0.7rem;" value="${ev.val !== undefined ? ev.val : 1}" onchange="updateDailyEvent(${i}, 'val', parseInt(this.value))">
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <span style="font-size:0.75rem; font-weight:bold; color:#78350f;">Set Var:</span>
+                        <select style="flex:1; padding:6px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d;" onchange="updateDailyEvent(${i}, 'varName', this.value)">
+                            <option value="">- Select Variable -</option>
+                            ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${ev.varName===v?'selected':''}>${v}</option>`).join('')}
+                        </select>
+                        <span style="font-size:0.75rem; font-weight:bold; color:#78350f;">=</span>
+                        <input type="number" style="width:60px; padding:6px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d;" value="${ev.val !== undefined ? ev.val : 1}" onchange="updateDailyEvent(${i}, 'val', parseInt(this.value))">
+                    </div>
                 `;
             } else {
                 actionHTML = `
-                    <select style="flex:1; padding:2px; font-size:0.7rem;" onchange="updateDailyEvent(${i}, 'blockName', this.value)">
-                        <option value="">- Block -</option>
-                        ${story.blocks.map(b => `<option value="${b.id}" ${ev.blockName===b.id?'selected':''}>${b.id}</option>`).join('')}
-                    </select>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <span style="font-size:0.75rem; font-weight:bold; color:#78350f;">Jump To:</span>
+                        <select style="flex:1; padding:6px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d;" onchange="updateDailyEvent(${i}, 'blockName', this.value)">
+                            <option value="">- Select Block -</option>
+                            ${story.blocks.map(b => `<option value="${b.id}" ${ev.blockName===b.id?'selected':''}>${b.id}</option>`).join('')}
+                        </select>
+                    </div>
                 `;
             }
-            eventHTML += `<div style="display:flex; gap:4px; margin-bottom:5px; align-items:center;">
-                <span style="font-size:0.7rem;">Day</span>
-                <input type="number" style="width:40px; padding:2px; font-size:0.7rem;" value="${ev.day}" onchange="updateDailyEvent(${i}, 'day', parseInt(this.value))">
-                <select style="padding:2px; font-size:0.7rem;" onchange="updateDailyEvent(${i}, 'type', this.value)">
-                    <option value="var" ${ev.type==='var'?'selected':''}>Set</option>
-                    <option value="block" ${ev.type==='block'?'selected':''}>Jump</option>
-                </select>
-                ${actionHTML}
-                <button class="btn-d" style="width:auto; margin:0; padding:2px 6px;" onclick="removeDailyEvent(${i})">✕</button>
+            eventHTML += `<div style="background:#fffbeb; padding:10px; border-radius:6px; border:1px solid #fcd34d; margin-bottom:10px; position:relative;">
+                <button style="position:absolute; top:8px; right:8px; width:24px; height:24px; padding:0; display:flex; align-items:center; justify-content:center; font-size:0.8rem; background:#fee2e2; color:#ef4444; border:none; border-radius:4px; cursor:pointer;" onclick="removeDailyEvent(${i})" title="Remove Event">✕</button>
+
+                <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:8px; padding-right:28px;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:0.75rem; font-weight:bold; color:#92400e;">Trigger on Day:</span>
+                        <input type="number" min="1" style="width:60px; padding:4px 8px; font-size:0.8rem; font-weight:bold; color:#b45309; border-radius:4px; border:1px solid #fcd34d; text-align:center;" value="${ev.day}" onchange="updateDailyEvent(${i}, 'day', parseInt(this.value))">
+                    </div>
+
+                    <select style="padding:4px 8px; font-size:0.75rem; border-radius:4px; border:1px solid #fcd34d; background:#fef3c7; color:#92400e; font-weight:bold;" onchange="updateDailyEvent(${i}, 'type', this.value)">
+                        <option value="var" ${ev.type==='var'?'selected':''}>Action: Update Variable</option>
+                        <option value="block" ${ev.type==='block'?'selected':''}>Action: Force Block Jump</option>
+                    </select>
+                </div>
+
+                <div style="background:white; padding:8px; border-radius:4px; border:1px dashed #fcd34d;">
+                    ${actionHTML}
+                </div>
             </div>`;
         });
-        eventHTML += `<button class="btn-s" style="font-size:0.65rem; padding:4px; width:100%;" onclick="addDailyEvent()">+ Add Event</button></div>`;
+        eventHTML += `<button style="background:#d97706; color:white; border:none; border-radius:6px; padding:8px; width:100%; font-size:0.8rem; font-weight:bold; cursor:pointer; transition:0.2s;" onmouseover="this.style.background='#b45309'" onmouseout="this.style.background='#d97706'" onclick="addDailyEvent()">+ Add Daily Event</button></div>`;
     }
 
     document.getElementById('ed-var-table').innerHTML = varHTML + eventHTML;
@@ -724,18 +734,12 @@ window.evaluateReqLogic = function(reqs, reqLogic, vars) {
     let results = [];
 
     for (let r of reqs) {
-        if (!r.var || !vars[r.var]) { 
-            results.push(false); 
-            continue; 
-        }
-
+        if (!r.var || !vars[r.var]) { results.push(false); continue; }
         let cur = vars[r.var].val;
         let t = vars[r.var].type;
         let rMet = true;
-
-        if (t === 'flag') {
-            if (cur !== r.val) rMet = false;
-        } else if (t === 'char' || t === 'npc') {
+        if (t === 'flag') { if (cur !== r.val) rMet = false; }
+        else if (t === 'char' || t === 'npc') {
             if (r.op === '==' && cur != r.val) rMet = false;
             if (r.op === '!=' && cur == r.val) rMet = false;
         } else {
@@ -751,7 +755,6 @@ window.evaluateReqLogic = function(reqs, reqLogic, vars) {
     if (reqLogic === 'OR') return results.some(res => res === true);
     return results.every(res => res === true);
 };
-
 window.checkLogic = function(val, min, max) { return val >= (min || 0) && val <= (max === undefined ? 999999 : max); };
 
 
@@ -825,19 +828,17 @@ window.renderExtraTextEditor = function() {
     let html = `<h4>Conditional Text</h4>`;
     if (b.extraTexts) {
         b.extraTexts.forEach((extra, i) => {
-
-            // Auto-migrate old single vars to reqs array format on the fly if needed
             if (!extra.reqs) {
                 extra.reqs = [];
                 if (extra.var) {
                     extra.reqs.push({ var: extra.var, op: '>=', val: extra.reqMin });
-                    if (extra.reqMax !== undefined && extra.reqMax < 999999) {
-                        extra.reqs.push({ var: extra.var, op: '<=', val: extra.reqMax });
-                    }
+                    if (extra.reqMax !== undefined && extra.reqMax < 999999) { extra.reqs.push({ var: extra.var, op: '<=', val: extra.reqMax }); }
                 }
             }
 
-            let logicSelect = '';
+
+
+        let logicSelect = '';
             if (extra.reqs && extra.reqs.length > 1) {
                 logicSelect = `<select style="margin-left: 10px; padding: 2px; font-size: 0.65rem; border:1px solid #cbd5e1; border-radius:4px;" onchange="updateExtraText(${i}, 'reqLogic', this.value)">
                     <option value="AND" ${extra.reqLogic !== 'OR' ? 'selected' : ''}>ALL (AND)</option>
@@ -873,7 +874,6 @@ window.renderExtraTextEditor = function() {
                         </select>`;
                         if (r.op !== 'has') vals = `<input type="number" style="flex:1; width:50px; border: 1px solid #ddd; border-radius: 4px; padding: 4px;" value="${r.val}" onchange="updateExtraReq(${i}, ${rIdx}, 'val', parseInt(this.value))">`;
                     }
-
                     reqsHTML += `<div style="display:flex; gap:5px; margin-top:5px; align-items:center;">
                         <select style="flex:1; border: 1px solid #ddd; border-radius: 4px; padding: 4px;" onchange="updateExtraReq(${i}, ${rIdx}, 'var', this.value)">
                             <option value="">- Var -</option>
@@ -884,7 +884,6 @@ window.renderExtraTextEditor = function() {
                     </div>`;
                 });
             }
-
             reqsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.6rem; padding:4px; width:100%;" onclick="addExtraReq(${i})">+ Add Condition</button></div>`;
 
             html += `<div class="card" style="border-left: 4px solid var(--p); background: #fcfcfc; margin-bottom: 15px;">
@@ -950,14 +949,30 @@ window.renderChoices = function() {
     document.getElementById('ed-choices').innerHTML = b.choices.map((c, i) => {
         
         
+        
+        let effectsHTML = `<div style="grid-column: span 2; background:#f1f5f9; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;">
+            <label style="font-size:0.65rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Give & Take Effects</label>`;
+        (c.effects || []).forEach((eff, eIdx) => {
+            effectsHTML += `<div style="display:flex; gap:5px; margin-top:5px; align-items:center;">
+                <select style="width:60px; padding: 4px; border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'type', this.value)">
+                    <option value="give" ${eff.type === 'give' ? 'selected' : ''}>Give</option>
+                    <option value="take" ${eff.type === 'take' ? 'selected' : ''}>Take</option>
+                </select>
+                <select style="flex:1; padding: 4px; border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'var', this.value)">
+                    <option value="">- Var -</option>
+                    ${vOpt.replace(`value="${eff.var}"`, `value="${eff.var}" selected`)}
+                </select>
+                <input type="number" style="width:60px; padding: 4px; border:1px solid #ddd; border-radius:4px;" value="${eff.amt || 0}" onchange="updateChoiceEffect(${i}, ${eIdx}, 'amt', parseInt(this.value))">
+                <button class="btn-d" style="width:auto; margin:0; padding:4px 8px;" onclick="removeChoiceEffect(${i}, ${eIdx})">🗑</button>
+            </div>`;
+        });
+        effectsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.6rem; padding:4px; width:100%;" onclick="addChoiceEffect(${i})">+ Add Effect</button></div>`;
         let logicSelect = '';
         if (c.reqs && c.reqs.length > 1) {
-            logicSelect = `
-                <select style="margin-left: 10px; padding: 2px; font-size: 0.65rem; border:1px solid #cbd5e1; border-radius:4px;" onchange="updateChoice(${i}, 'reqLogic', this.value)">
+            logicSelect = `<select style="margin-left: 10px; padding: 2px; font-size: 0.65rem; border:1px solid #cbd5e1; border-radius:4px;" onchange="updateChoice(${i}, 'reqLogic', this.value)">
                     <option value="AND" ${c.reqLogic !== 'OR' ? 'selected' : ''}>ALL (AND)</option>
                     <option value="OR" ${c.reqLogic === 'OR' ? 'selected' : ''}>ANY (OR)</option>
-                </select>
-            `;
+                </select>`;
         }
         let reqsHTML = `<div style="grid-column: span 2; background:#f8fafc; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;"><label style="font-size:0.65rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Requirements ${logicSelect}</label>`;
         (c.reqs || []).forEach((r, rIdx) => {
@@ -981,7 +996,21 @@ window.renderChoices = function() {
         });
         reqsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.6rem; padding:4px; width:100%;" onclick="addReq(${i})">+ Add Requirement</button></div>`;
 
-        return `<div class="card" style="border: 1px solid #ddd; background:#fafafa; margin-top:10px;"><input value="${c.txt}" oninput="updateChoice(${i}, 'txt', this.value)" placeholder="Choice Text" style="width:100%; margin-bottom:10px; font-weight:bold;"><div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; background:#e2e8f0; padding:15px; border-radius:8px;"><div><label style="font-size:0.6rem; font-weight:bold;">Give</label><select onchange="updateChoice(${i}, 'giveVar', this.value)"><option value="">None</option>${vOpt.replace(`value="${c.giveVar}"`, `value="${c.giveVar}" selected`)}</select><input type="number" value="${c.giveAmt || 0}" onchange="updateChoice(${i}, 'giveAmt', parseInt(this.value))"></div><div><label style="font-size:0.6rem; font-weight:bold;">Take</label><select onchange="updateChoice(${i}, 'takeVar', this.value)"><option value="">None</option>${vOpt.replace(`value="${c.takeVar}"`, `value="${c.takeVar}" selected`)}</select><input type="number" value="${c.takeAmt || 0}" onchange="updateChoice(${i}, 'takeAmt', parseInt(this.value))"></div>${reqsHTML}<div><label style="font-size:0.6rem; font-weight:bold;">Persistence</label><select onchange="updateChoice(${i}, 'persistFlag', this.value)"><option value="">Set Flag On...</option>${vOpt.replace(`value="${c.persistFlag}"`, `value="${c.persistFlag}" selected`)}</select><label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label></div><div><label style="font-size:0.6rem; font-weight:bold;">Max Uses</label><input type="number" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))"><label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label><div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.6rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label style="font-size:0.6rem;">Add Time Phases: <input type="number" style="width:40px; padding:2px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.6rem;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div></div><div><label style="font-size:0.6rem; font-weight:bold;">Prompt Name Change</label><select onchange="updateChoice(${i}, 'promptChar', this.value)"><option value="">None</option>${cOpt.replace(`value="${c.promptChar}"`, `value="${c.promptChar}" selected`)}</select></div><div style="grid-column: span 2;"><label style="font-size:0.6rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.75rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div></div><select style="margin-top:10px; width:100%;" onchange="updateChoice(${i}, 'next', this.value)"><option value="">Stay here...</option>${story.blocks.map(bl => `<option value="${bl.id}" ${bl.id === c.next ? 'selected' : ''}>→ ${bl.id}</option>`).join('')}</select><button class="btn-d" onclick="removeChoice(${i})" style="margin-top:10px; width:100%;">Remove Choice</button></div>`;
+        return `<div class="card" style="border: 1px solid #ddd; background:#fafafa; margin-top:10px;">
+    <input value="${c.txt}" oninput="updateChoice(${i}, 'txt', this.value)" placeholder="Choice Text" style="width:100%; margin-bottom:10px; font-weight:bold;">
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; background:#e2e8f0; padding:15px; border-radius:8px;">
+        ${effectsHTML}
+        ${reqsHTML}
+        <div><label style="font-size:0.6rem; font-weight:bold;">Persistence</label><select onchange="updateChoice(${i}, 'persistFlag', this.value)"><option value="">Set Flag On...</option>${vOpt.replace(`value="${c.persistFlag}"`, `value="${c.persistFlag}" selected`)}</select><label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label></div>
+        <div><label style="font-size:0.6rem; font-weight:bold;">Max Uses</label><input type="number" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))"><label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
+            <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.6rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label style="font-size:0.6rem;">Add Time Phases: <input type="number" style="width:40px; padding:2px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.6rem;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>
+        </div>
+        <div><label style="font-size:0.6rem; font-weight:bold;">Prompt Name Change</label><select onchange="updateChoice(${i}, 'promptChar', this.value)"><option value="">None</option>${cOpt.replace(`value="${c.promptChar}"`, `value="${c.promptChar}" selected`)}</select></div>
+        <div style="grid-column: span 2;"><label style="font-size:0.6rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.75rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
+    </div>
+    <select style="margin-top:10px; width:100%;" onchange="updateChoice(${i}, 'next', this.value)"><option value="">Stay here...</option>${story.blocks.map(bl => `<option value="${bl.id}" ${bl.id === c.next ? 'selected' : ''}>→ ${bl.id}</option>`).join('')}</select>
+    <button class="btn-d" onclick="removeChoice(${i})" style="margin-top:10px; width:100%;">Remove Choice</button>
+</div>`;
     }).join('');
 };
 
@@ -991,8 +1020,8 @@ window.calcRPGStats = function() {
     Object.keys(pState.vars).forEach(st => {
         if (pState.vars[st].type === 'stat') {
             let base = pState.vars[st].val;
-            let wName = pState.equipped ? pState.equipped.weapon : null;
-            let aName = pState.equipped ? pState.equipped.armor : null;
+            let wName = (pState.equipped && pState.equipped.weapon && pState.vars[pState.equipped.weapon] && pState.vars[pState.equipped.weapon].val > 0) ? pState.equipped.weapon : null;
+            let aName = (pState.equipped && pState.equipped.armor && pState.vars[pState.equipped.armor] && pState.vars[pState.equipped.armor].val > 0) ? pState.equipped.armor : null;
             let w = (wName && story.rpgItems && story.rpgItems[wName]) ? story.rpgItems[wName] : null;
             let a = (aName && story.rpgItems && story.rpgItems[aName]) ? story.rpgItems[aName] : null;
 
@@ -1128,19 +1157,12 @@ window.renderStep = function() {
     let combinedText = b.text;
     if (b.extraTexts) {
         b.extraTexts.forEach(extra => {
-            // Support legacy format or new multiple-reqs format
             if (extra.reqs && extra.reqs.length > 0) {
-                if (window.evaluateReqLogic(extra.reqs, extra.reqLogic, pState.vars)) {
-                    combinedText += "\n\n" + extra.text;
-                }
+                if (window.evaluateReqLogic(extra.reqs, extra.reqLogic, pState.vars)) combinedText += "\n\n" + extra.text;
             } else if (extra.var) {
-                // Fallback for legacy single-condition
                 const cur = pState.vars[extra.var]?.val || 0;
                 if (window.checkLogic(cur, extra.reqMin, extra.reqMax)) combinedText += "\n\n" + extra.text;
-            } else {
-                // No conditions
-                combinedText += "\n\n" + extra.text;
-            }
+            } else { combinedText += "\n\n" + extra.text; }
         });
     }
 
@@ -1193,13 +1215,18 @@ window.renderStep = function() {
                 if (c.persistFlag && pState.vars[c.persistFlag]) {
                     pState.vars[c.persistFlag].val = 1;
                 }
-                if (c.takeVar && pState.vars[c.takeVar]) {
-                    pState.vars[c.takeVar].val -= (c.takeAmt || 0);
-                    window.showToast(`- ${c.takeAmt || 0} ${c.takeVar}`, 'bad');
-                }
-                if (c.giveVar && pState.vars[c.giveVar]) {
-                    pState.vars[c.giveVar].val += (c.giveAmt || 0);
-                    window.showToast(`+ ${c.giveAmt || 0} ${c.giveVar}`, 'good');
+                if (c.effects) {
+                    c.effects.forEach(eff => {
+                        if (eff.var && pState.vars[eff.var]) {
+                            if (eff.type === 'take') {
+                                pState.vars[eff.var].val -= (eff.amt || 0);
+                                if (pState.config[eff.var]) window.showToast(`- ${eff.amt || 0} ${eff.var}`, 'bad');
+                            } else if (eff.type === 'give') {
+                                pState.vars[eff.var].val += (eff.amt || 0);
+                                if (pState.config[eff.var]) window.showToast(`+ ${eff.amt || 0} ${eff.var}`, 'good');
+                            }
+                        }
+                    });
                 }
             }
 
@@ -1263,8 +1290,22 @@ window.addExtraTextField = function() {
 window.updateExtraText = function(i, field, val) { story.blocks[bIdx].extraTexts[i][field] = val; };
 window.removeExtraText = function(i) { story.blocks[bIdx].extraTexts.splice(i, 1); window.renderEditor(); };
 
+
+window.addChoiceEffect = function(cIdx) {
+    if (!story.blocks[bIdx].choices[cIdx].effects) story.blocks[bIdx].choices[cIdx].effects = [];
+    story.blocks[bIdx].choices[cIdx].effects.push({ type: 'give', var: '', amt: 1 });
+    window.renderChoices();
+};
+window.updateChoiceEffect = function(cIdx, eIdx, field, val) {
+    story.blocks[bIdx].choices[cIdx].effects[eIdx][field] = val;
+    window.renderChoices();
+};
+window.removeChoiceEffect = function(cIdx, eIdx) {
+    story.blocks[bIdx].choices[cIdx].effects.splice(eIdx, 1);
+    window.renderChoices();
+};
 window.addChoice = function() {
-    story.blocks[bIdx].choices.push({ id: Date.now().toString(), txt: 'New Choice', next: '', giveVar: '', giveAmt: 0, takeVar: '', takeAmt: 0, reqs: [], hideLocked: false, maxUses: 0, showUsage: true, persistFlag: '', promptChar: '', lockedMsg: '', timeAdd: 1, forceNextDay: false });
+    story.blocks[bIdx].choices.push({ id: Date.now().toString(), txt: 'New Choice', next: '', effects: [], reqs: [], hideLocked: false, maxUses: 0, showUsage: true, persistFlag: '', promptChar: '', lockedMsg: '', timeAdd: 1, forceNextDay: false });
     window.renderChoices();
 };
 window.updateChoice = function(idx, f, v) { story.blocks[bIdx].choices[idx][f] = v; };
@@ -1751,6 +1792,7 @@ window.renderInventory = function() {
         let hasItems = false;
         for (let k in pState.vars) {
             const v = pState.vars[k];
+            if (!pState.config[k]) continue;
             if (v.type !== 'item' || v.val <= 0) continue;
 
             const itm = story.rpgItems && story.rpgItems[k] ? story.rpgItems[k] : null;
@@ -1790,13 +1832,16 @@ window.renderInventory = function() {
     }
 
     if (window.activeBackpackTab === 'equip') {
-        html += row('Weapon', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${pState.equipped.weapon || 'None'}</span> ${pState.equipped.weapon ? `<button style="padding:4px 8px; font-size:0.7rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('weapon')">Unequip</button>` : ''}`);
-        html += row('Armor', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${pState.equipped.armor || 'None'}</span> ${pState.equipped.armor ? `<button style="padding:4px 8px; font-size:0.7rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('armor')">Unequip</button>` : ''}`);
+        let wName = (pState.equipped && pState.equipped.weapon && pState.vars[pState.equipped.weapon] && pState.vars[pState.equipped.weapon].val > 0) ? pState.equipped.weapon : null;
+        let aName = (pState.equipped && pState.equipped.armor && pState.vars[pState.equipped.armor] && pState.vars[pState.equipped.armor].val > 0) ? pState.equipped.armor : null;
+        html += row('Weapon', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${wName || 'None'}</span> ${wName ? `<button style="padding:4px 8px; font-size:0.7rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('weapon')">Unequip</button>` : ''}`);
+        html += row('Armor', `<span style="color:#fbbf24; font-weight:bold; font-size:0.85rem;">${aName || 'None'}</span> ${aName ? `<button style="padding:4px 8px; font-size:0.7rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="window.unequipItem('armor')">Unequip</button>` : ''}`);
 
         html += `<div style="margin-top:15px; font-size:0.7rem; color:#94a3b8; font-weight:bold; text-transform:uppercase; border-bottom:1px solid #475569; padding-bottom:4px; margin-bottom:8px;">Available Gear</div>`;
         let hasGear = false;
         for (let k in pState.vars) {
             const v = pState.vars[k];
+            if (!pState.config[k]) continue;
             const itm = story.rpgItems && story.rpgItems[k] ? story.rpgItems[k] : null;
             if (!itm || v.type !== 'item' || v.val <= 0) continue;
             if (itm.type !== 'weapon' && itm.type !== 'armor') continue;
@@ -1827,6 +1872,7 @@ window.renderInventory = function() {
             const v = pState.vars[k];
             if (k === 'TimeOfDay' || k === 'Day') continue;
             if (k.startsWith('Max')) continue;
+            if (!pState.config[k]) continue;
 
             if (v.type === 'stat') {
                 const maxKey = 'Max' + k;
@@ -1834,11 +1880,11 @@ window.renderInventory = function() {
                 const txt = pState.vars[maxKey]
                     ? `${val} / ${stats[maxKey] !== undefined ? stats[maxKey] : pState.vars[maxKey].val}`
                     : `${val}`;
-
                 html += row(k, `<span style="color:#10b981; font-weight:bold;">${txt}</span>`);
-            } else if (pState.config[k] && v.type === 'flag') {
-                // Show HUD flags
+            } else if (v.type === 'flag') {
                 html += row(k, `<span style="color:${v.val > 0 ? '#10b981' : '#94a3b8'}; font-weight:bold;">${v.val > 0 ? 'ON' : 'OFF'}</span>`);
+            } else if (v.type === 'char' || v.type === 'npc') {
+                html += row(k, `<span style="color:#fbbf24; font-weight:bold;">${v.val}</span>`);
             }
         }
     }
