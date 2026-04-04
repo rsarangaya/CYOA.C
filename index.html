@@ -78,7 +78,7 @@
         <input type="text" id="ed-title" class="story-title-input" placeholder="Story Title">
         <div style="display: flex; gap: 10px;">
             <button class="btn-s" onclick="exportStory()">Export</button>
-            <button class="btn-p" onclick="saveStory()">Save to Library</button>
+            <button class="btn-p" onclick="saveStory()">Save</button>
         </div>
     </div>
 
@@ -138,7 +138,7 @@
 <!-- PLAY SCREEN -->
 <div id="play-screen" class="screen">
     <div class="header-row">
-        <button class="btn-s" onclick="showScreen('dash-screen')">← Exit</button>
+        <button id="btn-play-exit" class="btn-s" onclick="exitPlay()">← Exit</button>
         <h2 id="p-title"></h2>
     </div>
     <div id="game-msg"></div>

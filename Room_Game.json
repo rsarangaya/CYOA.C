@@ -1,0 +1,529 @@
+{
+  "id": 23,
+  "title": "Room Game",
+  "useDayCycle": false,
+  "isRPG": false,
+  "rpgStats": [],
+  "rpgItems": {},
+  "blockGroups": [
+    "Ungrouped"
+  ],
+  "dailyEvents": [],
+  "statEvents": [],
+  "globalVars": {
+    "Strength": {
+      "type": "stat",
+      "val": 0,
+      "stats": {}
+    },
+    "Key": {
+      "type": "item",
+      "val": 0,
+      "stats": {}
+    },
+    "Unlocked": {
+      "type": "flag",
+      "val": 0,
+      "stats": {}
+    },
+    "NyarMar": {
+      "type": "char",
+      "val": "Stranger",
+      "stats": {}
+    },
+    "KeyTaken": {
+      "type": "flag",
+      "val": 0,
+      "stats": {}
+    },
+    "Stupidity": {
+      "type": "stat",
+      "val": 10,
+      "stats": {}
+    }
+  },
+  "varConfig": {
+    "Strength": true,
+    "Key": true
+  },
+  "blocks": [
+    {
+      "id": "starting room",
+      "text": "You wake up in a room. You see 2 doors.",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2152",
+          "txt": "Work Out",
+          "next": "Workout",
+          "hideLocked": false,
+          "maxUses": 3,
+          "showUsage": false,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "You are TOOO STRONGGG!!!",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [
+            {
+              "type": "give",
+              "var": "Strength",
+              "amt": 2
+            }
+          ],
+          "reqs": [
+            {
+              "var": "Strength",
+              "op": "<=",
+              "val": 6
+            }
+          ],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        },
+        {
+          "id": "2153",
+          "txt": "Door A",
+          "next": "Office",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "Unlocked",
+          "promptChar": "",
+          "lockedMsg": "Door is LOCKED. Find a Key",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [
+            {
+              "type": "take",
+              "var": "Key",
+              "amt": 1
+            }
+          ],
+          "reqs": [
+            {
+              "var": "Key",
+              "op": "has",
+              "val": 1
+            }
+          ],
+          "reqLogic": "OR",
+          "conditionalNext": []
+        },
+        {
+          "id": "2154",
+          "txt": "Door B",
+          "next": "Closet",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "Unlocked",
+          "promptChar": "",
+          "lockedMsg": "You are too weak to open this door.",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [
+            {
+              "var": "Strength",
+              "op": ">=",
+              "val": 6
+            }
+          ],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "Stranger",
+      "text": "Hello there friendo. Whats uppity up up",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2155",
+          "txt": "Who are you?",
+          "next": "Stranger2",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "NyarMar",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "Closet",
+      "text": "You see a dusty closet. ",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2156",
+          "txt": "Investigate item",
+          "next": "Key Grabbed",
+          "hideLocked": false,
+          "maxUses": 1,
+          "showUsage": false,
+          "persistFlag": "KeyTaken",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [
+            {
+              "type": "give",
+              "var": "Key",
+              "amt": 1
+            }
+          ],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        },
+        {
+          "id": "2157",
+          "txt": "Go Back",
+          "next": "starting room",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": [
+        {
+          "var": "KeyTaken",
+          "reqMin": 0,
+          "reqMax": 0,
+          "reqs": [
+            {
+              "var": "KeyTaken",
+              "op": "==",
+              "val": 0
+            }
+          ],
+          "reqLogic": "AND",
+          "text": "A small shiny item catches your attention"
+        }
+      ]
+    },
+    {
+      "id": "Key Grabbed",
+      "text": "You found a key! Good job",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2158",
+          "txt": "Go back",
+          "next": "Closet",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "Workout",
+      "text": "you do some push ups or something idk +2 STR",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2159",
+          "txt": "Get up",
+          "next": "starting room",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        },
+        {
+          "id": "2160",
+          "txt": "Work Out Again",
+          "next": "",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": false,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "You are TOO STRONGGG",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [
+            {
+              "type": "give",
+              "var": "Strength",
+              "amt": 2
+            }
+          ],
+          "reqs": [
+            {
+              "var": "Strength",
+              "op": "<=",
+              "val": 6
+            }
+          ],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "Office",
+      "text": "You are now in the Office. You see a stranger standing there",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2161",
+          "txt": "Go Back",
+          "next": "starting room",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        },
+        {
+          "id": "2162",
+          "txt": "Talk to Stranger.",
+          "next": "Stranger",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "Stranger2",
+      "text": "My name is {NyarMar}. How can I help ya?",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2163",
+          "txt": "Tell me how strong I am",
+          "next": "Stats Screen",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "Stats Screen",
+      "text": "Here are your Stats!\n\nStrength : {Strength}\nStupidity: {Stupidity}\n\nGood Game!",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2164",
+          "txt": "You Calling me stupid??!!",
+          "next": "FightorNo",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "FightorNo",
+      "text": "{NyarMar}: Yea I am fool! What're you gonna do about it?",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2165",
+          "txt": "Fight!",
+          "next": "FightStart",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "FightStart",
+      "text": "Yo are fighting {NyarMar}.\n\n",
+      "group": "Ungrouped",
+      "choices": [
+        {
+          "id": "2166",
+          "txt": "Big Dawg the man!",
+          "next": "ThatGuy",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [
+            {
+              "var": "Strength",
+              "op": ">=",
+              "val": 7
+            }
+          ],
+          "reqLogic": "OR",
+          "conditionalNext": [
+            {
+              "var": "Strength",
+              "op": "<=",
+              "val": "6",
+              "next": "NotThatGuy",
+              "reqs": [
+                {
+                  "var": "Strength",
+                  "op": ">=",
+                  "val": 6
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "2167",
+          "txt": "Run Away",
+          "next": "RanAway",
+          "hideLocked": false,
+          "maxUses": 0,
+          "showUsage": true,
+          "persistFlag": "",
+          "promptChar": "",
+          "lockedMsg": "",
+          "timeAdd": 1,
+          "forceNextDay": false,
+          "passTime": true,
+          "effects": [],
+          "reqs": [
+            {
+              "var": "Key",
+              "op": "has",
+              "val": 1
+            }
+          ],
+          "reqLogic": "AND",
+          "conditionalNext": []
+        }
+      ],
+      "extraTexts": []
+    },
+    {
+      "id": "ThatGuy",
+      "text": "You BIG DAWG {NyarMar}. He is surprised by your strength and admits inferiority to the ALPHA\n\n\n\nYOU WON!",
+      "group": "Ungrouped",
+      "choices": [],
+      "extraTexts": []
+    },
+    {
+      "id": "NotThatGuy",
+      "text": "You tried Bigdawging {NyarMar}. But you're not HIM.\n\nYou get bodybagged.\n\nGAME OVER",
+      "group": "Ungrouped",
+      "choices": [],
+      "extraTexts": []
+    },
+    {
+      "id": "RanAway",
+      "text": "You ran away like a coward.\n\nCowardice +{Stupidity}\n\nGAME OVER!",
+      "group": "Ungrouped",
+      "choices": [],
+      "extraTexts": []
+    }
+  ]
+}

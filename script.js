@@ -459,94 +459,216 @@ async function refreshLibrary() {
 
 async function loadStoryFromDB(storyId) {
     const db = await openDB();
-    const tx = db.transaction(['Stories', 'StoryBlocks', 'ExtraTexts', 'Choices', 'Variables', 'ChoiceEffects'], 'readonly');
-    const dbStory = await idbReq(tx.objectStore('Stories').get(storyId));
-    const blocks = await idbReq(tx.objectStore('StoryBlocks').index('Story_ID').getAll(storyId));
-    const vars = await idbReq(tx.objectStore('Variables').index('Story_ID').getAll(storyId));
-    let memStory = { id: dbStory.Story_ID, title: dbStory.Story_Title, useDayCycle: !!dbStory.UseDayCycle, isRPG: !!dbStory.Is_RPG, rpgStats: JSON.parse(dbStory.RPG_Stats_JSON || '["HP","MaxHP","Atk","Def","Dex","Agi"]'), rpgItems: JSON.parse(dbStory.RPG_Items_JSON || '{}'), blockGroups: JSON.parse(dbStory.Block_Groups_JSON || '["Ungrouped"]'), dailyEvents: JSON.parse(dbStory.Daily_Events_JSON || '[]'), globalVars: {}, varConfig: {}, blocks: [] };
+
+    // Fire ALL reads in separate transactions to avoid IndexedDB auto-commit
+    // killing the transaction mid-await between nested async calls.
+    function txGet(store, key) {
+        return idbReq(db.transaction(store, 'readonly').objectStore(store).get(key));
+    }
+    function txGetAllByIndex(store, index, key) {
+        return idbReq(db.transaction(store, 'readonly').objectStore(store).index(index).getAll(key));
+    }
+
+    const dbStory = await txGet('Stories', storyId);
+    const [blocks, vars] = await Promise.all([
+        txGetAllByIndex('StoryBlocks', 'Story_ID', storyId),
+        txGetAllByIndex('Variables', 'Story_ID', storyId)
+    ]);
+
+    // Prefetch all extras, choices, and effects in parallel
+    const extrasArr = await Promise.all(blocks.map(b => txGetAllByIndex('ExtraTexts', 'StoryBlock_ID', b.StoryBlock_ID)));
+    const choicesArr = await Promise.all(blocks.map(b => txGetAllByIndex('Choices', 'StoryBlock_ID', b.StoryBlock_ID)));
+    const allChoices = choicesArr.flat();
+    const effectsArr = await Promise.all(allChoices.map(c => txGetAllByIndex('ChoiceEffects', 'Choice_ID', c.Choice_ID)));
+
+    // Map effects back to choices by index
+    const effectsByChoiceIdx = {};
+    allChoices.forEach((c, idx) => { effectsByChoiceIdx[c.Choice_ID] = effectsArr[idx]; });
+
+    let memStory = {
+        id: dbStory.Story_ID,
+        title: dbStory.Story_Title,
+        useDayCycle: !!dbStory.UseDayCycle,
+        isRPG: !!dbStory.Is_RPG,
+        rpgStats: JSON.parse(dbStory.RPG_Stats_JSON || '["HP","MaxHP","Atk","Def","Dex","Agi"]'),
+        rpgItems: JSON.parse(dbStory.RPG_Items_JSON || '{}'),
+        blockGroups: JSON.parse(dbStory.Block_Groups_JSON || '["Ungrouped"]'),
+        dailyEvents: JSON.parse(dbStory.Daily_Events_JSON || '[]'),
+        statEvents: JSON.parse(dbStory.Stat_Events_JSON || '[]'),
+        globalVars: {},
+        varConfig: {},
+        blocks: []
+    };
+
     for (let v of vars) {
         memStory.globalVars[v.Var_Name] = { type: v.Var_Type, val: v.Default_Value, stats: JSON.parse(v.Char_Stats_JSON || '{}') };
         if (v.Is_HUD) memStory.varConfig[v.Var_Name] = true;
     }
-    for (let b of blocks) {
+
+    for (let bIdx2 = 0; bIdx2 < blocks.length; bIdx2++) {
+        const b = blocks[bIdx2];
         let memBlock = { id: b.Block_Name, text: b.Block_Text, group: b.Block_Group || 'Ungrouped', choices: [], extraTexts: [] };
-        let extras = await idbReq(tx.objectStore('ExtraTexts').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
-        for (let e of extras) {
+
+        for (let e of extrasArr[bIdx2]) {
             let parsedReqs = [];
-            if (e.Reqs_JSON) { parsedReqs = JSON.parse(e.Reqs_JSON); } 
-            else if (e.Req_Var) {
+            if (e.Reqs_JSON) {
+                parsedReqs = JSON.parse(e.Reqs_JSON);
+            } else if (e.Req_Var) {
                 parsedReqs.push({ var: e.Req_Var, op: '>=', val: e.Req_Min });
                 if (e.Req_Max !== undefined && e.Req_Max < 999999) parsedReqs.push({ var: e.Req_Var, op: '<=', val: e.Req_Max });
             }
             memBlock.extraTexts.push({ var: e.Req_Var, reqMin: e.Req_Min, reqMax: e.Req_Max, reqs: parsedReqs, reqLogic: e.Req_Logic || 'AND', text: e.Text_Content });
         }
-        let choices = await idbReq(tx.objectStore('Choices').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
-        for (let c of choices) {
-            let memChoice = { id: c.Choice_ID.toString(), txt: c.Choice_Text, next: c.Next_Block_Name, hideLocked: c.Hide_Locked, maxUses: c.Max_Uses, showUsage: c.Show_Usage, persistFlag: c.Persist_Flag, promptChar: c.Prompt_Char, lockedMsg: c.Locked_Msg, timeAdd: c.Time_Add !== undefined ? c.Time_Add : (c.Passes_Time === false ? 0 : 1), forceNextDay: !!c.Force_Next_Day, passTime: c.Passes_Time !== false, effects: [], reqs: [], reqLogic: c.Req_Logic || 'AND' };
+
+        for (let c of choicesArr[bIdx2]) {
+            let memChoice = {
+                id: c.Choice_ID.toString(),
+                txt: c.Choice_Text,
+                next: c.Next_Block_Name,
+                hideLocked: c.Hide_Locked,
+                maxUses: c.Max_Uses,
+                showUsage: c.Show_Usage,
+                persistFlag: c.Persist_Flag,
+                promptChar: c.Prompt_Char,
+                lockedMsg: c.Locked_Msg,
+                timeAdd: c.Time_Add !== undefined ? c.Time_Add : (c.Passes_Time === false ? 0 : 1),
+                forceNextDay: !!c.Force_Next_Day,
+                passTime: c.Passes_Time !== false,
+                effects: [],
+                reqs: [],
+                reqLogic: c.Req_Logic || 'AND',
+                conditionalNext: c.Conditional_Next_JSON ? JSON.parse(c.Conditional_Next_JSON) : []
+            };
+
             if (c.Reqs_JSON) {
                 memChoice.reqs = JSON.parse(c.Reqs_JSON);
             } else if (c.Req_Var) {
-                memChoice.reqs.push({var: c.Req_Var, op: '>=', val: c.Req_Min});
-                if (c.Req_Max !== undefined && c.Req_Max < 999999) {
-                    memChoice.reqs.push({var: c.Req_Var, op: '<=', val: c.Req_Max});
-                }
+                memChoice.reqs.push({ var: c.Req_Var, op: '>=', val: c.Req_Min });
+                if (c.Req_Max !== undefined && c.Req_Max < 999999) memChoice.reqs.push({ var: c.Req_Var, op: '<=', val: c.Req_Max });
             }
-            let effects = await idbReq(tx.objectStore('ChoiceEffects').index('Choice_ID').getAll(c.Choice_ID));
-            memChoice.effects = [];
-            for (let eff of effects) {
-                memChoice.effects.push({ type: eff.Effect_Type, var: eff.Variable_Name, amt: eff.Amount || 0 });
+
+            for (let eff of (effectsByChoiceIdx[c.Choice_ID] || [])) {
+                memChoice.effects.push({
+                    type: eff.Effect_Type,
+                    var: eff.Variable_Name,
+                    amt: (eff.Amount !== undefined && eff.Amount !== null) ? Number(eff.Amount) : 0
+                });
             }
+
             memBlock.choices.push(memChoice);
         }
         memStory.blocks.push(memBlock);
     }
-    memStory.blocks.forEach(bk => { if (!memStory.blockGroups) memStory.blockGroups = ['Ungrouped']; if (!memStory.blockGroups.includes(bk.group)) memStory.blockGroups.push(bk.group); });
+
+    memStory.blocks.forEach(bk => {
+        if (!memStory.blockGroups) memStory.blockGroups = ['Ungrouped'];
+        if (!memStory.blockGroups.includes(bk.group)) memStory.blockGroups.push(bk.group);
+    });
     return memStory;
 }
 
+
 async function saveStoryToDB(storyObj) {
     const db = await openDB();
-    const tx = db.transaction(['Stories', 'StoryBlocks', 'ExtraTexts', 'Choices', 'Variables', 'ChoiceEffects'], 'readwrite');
-    let sObj = { Story_Title: storyObj.title, Dashboard_ID: currentDashboardId, UseDayCycle: !!storyObj.useDayCycle, Is_RPG: !!storyObj.isRPG, RPG_Stats_JSON: JSON.stringify(storyObj.rpgStats || []), RPG_Items_JSON: JSON.stringify(storyObj.rpgItems || {}), Block_Groups_JSON: JSON.stringify(storyObj.blockGroups || ['Ungrouped']), Daily_Events_JSON: JSON.stringify(storyObj.dailyEvents || []) };
+
+    // Helper: each call opens its own transaction to avoid auto-commit on await
+    function txGet(store, key) {
+        return idbReq(db.transaction(store, 'readonly').objectStore(store).get(key));
+    }
+    function txGetAllByIndex(store, index, key) {
+        return idbReq(db.transaction(store, 'readonly').objectStore(store).index(index).getAll(key));
+    }
+    function txDelete(store, key) {
+        return idbReq(db.transaction(store, 'readwrite').objectStore(store).delete(key));
+    }
+    function txPut(store, obj) {
+        return idbReq(db.transaction(store, 'readwrite').objectStore(store).put(obj));
+    }
+    function txAdd(store, obj) {
+        return idbReq(db.transaction(store, 'readwrite').objectStore(store).add(obj));
+    }
+
+    // 1. Upsert the story record
+    let sObj = {
+        Story_Title: storyObj.title,
+        Dashboard_ID: currentDashboardId,
+        UseDayCycle: !!storyObj.useDayCycle,
+        Is_RPG: !!storyObj.isRPG,
+        RPG_Stats_JSON: JSON.stringify(storyObj.rpgStats || []),
+        RPG_Items_JSON: JSON.stringify(storyObj.rpgItems || {}),
+        Block_Groups_JSON: JSON.stringify(storyObj.blockGroups || ['Ungrouped']),
+        Daily_Events_JSON: JSON.stringify(storyObj.dailyEvents || []),
+        Stat_Events_JSON: JSON.stringify(storyObj.statEvents || [])
+    };
     if (storyObj.id) sObj.Story_ID = storyObj.id;
-    const sid = await idbReq(tx.objectStore('Stories').put(sObj));
+    const sid = await txPut('Stories', sObj);
     storyObj.id = sid;
-    const oldVars = await idbReq(tx.objectStore('Variables').index('Story_ID').getAll(sid));
-    for (let v of oldVars) tx.objectStore('Variables').delete(v.Variable_ID);
-    const oldBlocks = await idbReq(tx.objectStore('StoryBlocks').index('Story_ID').getAll(sid));
+
+    // 2. Delete old variables
+    const oldVars = await txGetAllByIndex('Variables', 'Story_ID', sid);
+    await Promise.all(oldVars.map(v => txDelete('Variables', v.Variable_ID)));
+
+    // 3. Delete old blocks + their children
+    const oldBlocks = await txGetAllByIndex('StoryBlocks', 'Story_ID', sid);
     for (let b of oldBlocks) {
-        const oldE = await idbReq(tx.objectStore('ExtraTexts').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
-        for (let e of oldE) tx.objectStore('ExtraTexts').delete(e.ExtraText_ID);
-        const oldC = await idbReq(tx.objectStore('Choices').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
-        for (let c of oldC) {
-            const oldEff = await idbReq(tx.objectStore('ChoiceEffects').index('Choice_ID').getAll(c.Choice_ID));
-            for (let e of oldEff) tx.objectStore('ChoiceEffects').delete(e.Effect_ID);
-            tx.objectStore('Choices').delete(c.Choice_ID);
+        const [oldExtras, oldChoices] = await Promise.all([
+            txGetAllByIndex('ExtraTexts', 'StoryBlock_ID', b.StoryBlock_ID),
+            txGetAllByIndex('Choices', 'StoryBlock_ID', b.StoryBlock_ID)
+        ]);
+        await Promise.all(oldExtras.map(e => txDelete('ExtraTexts', e.ExtraText_ID)));
+        for (let c of oldChoices) {
+            const oldEffs = await txGetAllByIndex('ChoiceEffects', 'Choice_ID', c.Choice_ID);
+            await Promise.all(oldEffs.map(e => txDelete('ChoiceEffects', e.Effect_ID)));
+            await txDelete('Choices', c.Choice_ID);
         }
-        tx.objectStore('StoryBlocks').delete(b.StoryBlock_ID);
+        await txDelete('StoryBlocks', b.StoryBlock_ID);
     }
-    for (let vName in storyObj.globalVars) {
+
+    // 4. Write new variables
+    await Promise.all(Object.keys(storyObj.globalVars).map(vName => {
         let v = storyObj.globalVars[vName];
-        tx.objectStore('Variables').add({ Story_ID: sid, Var_Name: vName, Var_Type: v.type, Default_Value: v.val, Is_HUD: !!storyObj.varConfig[vName], Char_Stats_JSON: JSON.stringify(v.stats || {}) });
-    }
+        return txAdd('Variables', {
+            Story_ID: sid, Var_Name: vName, Var_Type: v.type,
+            Default_Value: v.val, Is_HUD: !!storyObj.varConfig[vName],
+            Char_Stats_JSON: JSON.stringify(v.stats || {})
+        });
+    }));
+
+    // 5. Write new blocks, extraTexts, choices, effects
     for (let b of storyObj.blocks) {
-        let bid = await idbReq(tx.objectStore('StoryBlocks').add({ Story_ID: sid, Block_Name: b.id, Block_Text: b.text, Block_Group: b.group || 'Ungrouped' }));
+        const bid = await txAdd('StoryBlocks', {
+            Story_ID: sid, Block_Name: b.id, Block_Text: b.text, Block_Group: b.group || 'Ungrouped'
+        });
         if (b.extraTexts) {
-            for (let ext of b.extraTexts) {
-                tx.objectStore('ExtraTexts').add({ StoryBlock_ID: bid, Req_Var: ext.var||'', Req_Min: ext.reqMin||0, Req_Max: ext.reqMax||0, Text_Content: ext.text, Reqs_JSON: JSON.stringify(ext.reqs || []), Req_Logic: ext.reqLogic || 'AND' });
-            }
+            await Promise.all(b.extraTexts.map(ext => txAdd('ExtraTexts', {
+                StoryBlock_ID: bid, Req_Var: ext.var||'', Req_Min: ext.reqMin||0,
+                Req_Max: ext.reqMax||0, Text_Content: ext.text,
+                Reqs_JSON: JSON.stringify(ext.reqs || []), Req_Logic: ext.reqLogic || 'AND'
+            })));
         }
         for (let c of b.choices) {
-            let cid = await idbReq(tx.objectStore('Choices').add({ StoryBlock_ID: bid, Choice_Text: c.txt, Next_Block_Name: c.next||'', Reqs_JSON: JSON.stringify(c.reqs || []), Req_Logic: c.reqLogic || 'AND', Hide_Locked: !!c.hideLocked, Max_Uses: c.maxUses||0, Show_Usage: c.showUsage !== false, Persist_Flag: c.persistFlag||'', Prompt_Char: c.promptChar||'', Locked_Msg: c.lockedMsg||'', Passes_Time: c.passTime !== false, Time_Add: c.timeAdd !== undefined ? c.timeAdd : 1, Force_Next_Day: !!c.forceNextDay }));
+            const cid = await txAdd('Choices', {
+                StoryBlock_ID: bid, Choice_Text: c.txt, Next_Block_Name: c.next||'',
+                Reqs_JSON: JSON.stringify(c.reqs || []), Req_Logic: c.reqLogic || 'AND',
+                Conditional_Next_JSON: JSON.stringify(c.conditionalNext || []),
+                Hide_Locked: !!c.hideLocked, Max_Uses: c.maxUses||0,
+                Show_Usage: c.showUsage !== false, Persist_Flag: c.persistFlag||'',
+                Prompt_Char: c.promptChar||'', Locked_Msg: c.lockedMsg||'',
+                Passes_Time: c.passTime !== false,
+                Time_Add: c.timeAdd !== undefined ? c.timeAdd : 1,
+                Force_Next_Day: !!c.forceNextDay
+            });
             if (c.effects) {
-                for (let eff of c.effects) {
-                    if (eff.var) tx.objectStore('ChoiceEffects').add({ Choice_ID: cid, Variable_Name: eff.var, Effect_Type: eff.type, Amount: eff.amt||0 });
-                }
+                await Promise.all(c.effects.filter(eff => eff.var).map(eff => txAdd('ChoiceEffects', {
+                    Choice_ID: cid, Variable_Name: eff.var,
+                    Effect_Type: eff.type, Amount: eff.amt || 0
+                })));
             }
         }
     }
-    return new Promise((res) => { tx.oncomplete = () => res(sid); });
+    return sid;
 }
+
 
 window.deleteStory = async function(index) {
     if(!confirm("Delete this story and all relationships?")) return;
@@ -1205,7 +1327,7 @@ window.renderExtraTextEditor = function() {
                     reqsHTML += `<div class="effect-row">
                         <select style="flex:1; border: 1px solid #ddd; border-radius: 4px; " onchange="updateExtraReq(${i}, ${rIdx}, 'var', this.value)">
                             <option value="">- Var -</option>
-                            ${vOpt.replace(`value="${r.var}"`, `value="${r.var}" selected`)}
+                            ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${r.var === v ? 'selected' : ''}>${v}</option>`).join('')}
                         </select>
                         ${r.var ? ops : ''} ${r.var && vals ? vals : ''}
                         <button class="btn-d" style="width:auto; margin:0; " onclick="removeExtraReq(${i}, ${rIdx})">🗑</button>
@@ -1288,9 +1410,9 @@ window.renderChoices = function() {
                 </select>
                 <select style="flex:1;  border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'var', this.value)">
                     <option value="">- Var -</option>
-                    ${vOpt.replace(`value="${eff.var}"`, `value="${eff.var}" selected`)}
+                    ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${eff.var === v ? 'selected' : ''}>${v}</option>`).join('')}
                 </select>
-                <input type="number" style="min-width:60px; max-width:120px;  border:1px solid #ddd; border-radius:4px;" value="${eff.amt || 0}" onchange="updateChoiceEffect(${i}, ${eIdx}, 'amt', parseInt(this.value))">
+                <input type="number" style="min-width:60px; max-width:120px;  border:1px solid #ddd; border-radius:4px;" value="${eff.amt || 0}" oninput="story.blocks[bIdx].choices[${i}].effects[${eIdx}].amt = parseInt(this.value)||0" onblur="window.renderChoices()">
                 <button class="btn-d" style="width:auto; margin:0; " onclick="removeChoiceEffect(${i}, ${eIdx})">🗑</button>
             </div>`;
         });
@@ -1302,41 +1424,152 @@ window.renderChoices = function() {
                     <option value="OR" ${c.reqLogic === 'OR' ? 'selected' : ''}>ANY (OR)</option>
                 </select>`;
         }
-        let reqsHTML = `<div class="sub-panel" style="background:#f8fafc; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;"><label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Requirements ${logicSelect}</label>`;
+        
+
+
+        let reqsHTML = '';
+        let branchHTML = `
+        <div class="sub-panel" style="background:#f8fafc; padding:10px; border-radius:6px; border:1px dashed #cbd5e1; margin-top:10px; grid-column: span 2;">
+            <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center; margin-bottom:5px;">Path Destinations & Conditions</label>
+
+            <div class="effect-row" style="display:flex; flex-direction:column; gap:5px; margin-top:5px; background:#fff; padding:8px; border:1px solid #e2e8f0; border-radius:4px;">
+                <div style="display:flex; align-items:center; gap:5px;">
+                    <span style="font-size:0.75rem; font-weight:bold; color:#64748b; min-width:85px;">Default Path:</span>
+                    <span style="font-size:0.7rem; color:#475569; margin-left:auto;">${(c.reqs && c.reqs.length > 1) ? `Logic: <select style="border:none; background:transparent; font-weight:bold; color:#475569; font-size:0.75rem; cursor:pointer;" onchange="updateChoice(${i}, 'reqLogic', this.value)"><option value="AND" ${c.reqLogic==='AND'?'selected':''}>AND</option><option value="OR" ${c.reqLogic==='OR'?'selected':''}>OR</option></select>` : ''}</span>
+                    <button class="btn-s" style="width:auto; margin:0; padding:2px 6px; font-size:0.7rem;" onclick="addReq(${i})">+ Add Condition</button>
+                </div>`;
+
+        let defaultReqsHTML = '';
         (c.reqs || []).forEach((r, rIdx) => {
             let t = story.globalVars[r.var]?.type;
             let ops = '', vals = '';
             if(t === 'flag') {
-                ops = `<select style="flex:1;" onchange="updateReq(${i}, ${rIdx}, 'val', parseInt(this.value))"><option value="1" ${r.val===1?'selected':''}>Is On</option><option value="0" ${r.val===0?'selected':''}>Is Off</option></select>`;
+                ops = `<select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="updateReq(${i}, ${rIdx}, 'val', parseInt(this.value))"><option value="1" ${r.val===1?'selected':''}>Is On</option><option value="0" ${r.val===0?'selected':''}>Is Off</option></select>`;
             } else if(t === 'char' || t === 'npc') {
-                ops = `<select style="flex:1;" onchange="updateReq(${i}, ${rIdx}, 'op', this.value)"><option value="=" ${r.op==='='?'selected':''}>Is</option><option value="!=" ${r.op==='!='?'selected':''}>Is Not</option></select>`;
-                vals = `<input type="text" style="flex:1; width:50px;" value="${r.val}" onchange="updateReq(${i}, ${rIdx}, 'val', this.value)">`;
+                ops = `<select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="updateReq(${i}, ${rIdx}, 'op', this.value)"><option value="==" ${r.op==='=='?'selected':''}>Is</option><option value="!=" ${r.op==='!='?'selected':''}>Is Not</option></select>`;
+                vals = `<input type="text" style="flex:1; width:50px; border:1px solid #ddd; border-radius:4px; padding:2px;" value="${r.val}" onchange="updateReq(${i}, ${rIdx}, 'val', this.value)">`;
             } else {
-                ops = `<select style="flex:1;" onchange="updateReq(${i}, ${rIdx}, 'op', this.value)"><option value="has" ${r.op==='has'?'selected':''}>Has</option><option value=">=" ${r.op==='>='?'selected':''}>&ge;</option><option value="<=" ${r.op==='<='?'selected':''}>&le;</option><option value="=" ${r.op==='='?'selected':''}>=</option><option value="!=" ${r.op==='!='?'selected':''}>&ne;</option></select>`;
-                if(r.op !== 'has') vals = `<input type="number" style="flex:1; width:50px;" value="${r.val}" onchange="updateReq(${i}, ${rIdx}, 'val', parseInt(this.value))">`;
+                ops = `<select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="updateReq(${i}, ${rIdx}, 'op', this.value)">
+                    <option value="has" ${r.op==='has'?'selected':''}>Has</option>
+                    <option value=">=" ${r.op==='>='?'selected':''}>&ge;</option>
+                    <option value="<=" ${r.op==='<='?'selected':''}>&le;</option>
+                    <option value="==" ${r.op==='=='?'selected':''}>==</option>
+                    <option value="!=" ${r.op==='!='?'selected':''}>&ne;</option>
+                    <option value=">" ${r.op==='>'?'selected':''}>&gt;</option>
+                    <option value="<" ${r.op==='<'?'selected':''}>&lt;</option>
+                </select>`;
+                if(r.op !== 'has') vals = `<input type="number" style="flex:1; width:50px; border:1px solid #ddd; border-radius:4px; padding:2px;" value="${r.val}" onchange="updateReq(${i}, ${rIdx}, 'val', parseInt(this.value))">`;
             }
-            reqsHTML += `<div class="effect-row">
-                <select style="flex:1;" onchange="updateReq(${i}, ${rIdx}, 'var', this.value)"><option value="">- Var -</option>${vOpt.replace(`value="${r.var}"`, `value="${r.var}" selected`)}</select>
+            defaultReqsHTML += `<div style="display:flex; gap:5px; margin-top:4px; align-items:center; background:#f8fafc; padding:4px; border:1px solid #e2e8f0; border-radius:4px;">
+                <span style="font-size:0.7rem; color:#475569;">Req:</span>
+                <select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="updateReq(${i}, ${rIdx}, 'var', this.value)"><option value="">- Var -</option>${Object.keys(story.globalVars).map(v => `<option value="${v}" ${r.var === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
                 ${r.var ? ops : ''}
                 ${r.var && vals ? vals : ''}
-                <button class="btn-d" style="width:auto; margin:0; " onclick="removeReq(${i}, ${rIdx})">✕</button>
+                <button class="btn-d" style="width:auto; margin:0; padding:2px 6px;" onclick="removeReq(${i}, ${rIdx})">✕</button>
             </div>`;
         });
-        reqsHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.8rem;  width:100%;" onclick="addReq(${i})">+ Add Requirement</button></div>`;
+        branchHTML += defaultReqsHTML;
+
+        branchHTML += `
+                <div style="display:flex; align-items:center; gap:5px; margin-top:4px;">
+                    <span style="font-size:0.75rem; font-weight:bold; color:#64748b;">Go to:</span>
+                    <select style="flex:1.5; border:1px solid #ddd; border-radius:4px; padding:4px;" onchange="updateChoice(${i}, 'next', this.value)">
+                        <option value="">Stay here...</option>
+                        ${story.blocks.map(bl => `<option value="${bl.id}" ${bl.id === c.next ? 'selected' : ''}>→ ${bl.id}</option>`).join('')}
+                    </select>
+                    <select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:4px;" onchange="updateChoice(${i}, 'persistFlag', this.value)">
+                        <option value="">Set Flag: None</option>
+                        ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${c.persistFlag === v ? 'selected' : ''}>${v}</option>`).join('')}
+                    </select>
+                    <select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:4px;" onchange="updateChoice(${i}, 'promptChar', this.value)">
+                        <option value="">Rename: None</option>
+                        ${Object.keys(story.globalVars).filter(k => story.globalVars[k].type === 'char' || story.globalVars[k].type === 'npc').map(v => `<option value="${v}" ${c.promptChar === v ? 'selected' : ''}>${v}</option>`).join('')}
+                    </select>
+                </div>
+            </div>`;
+
+        (c.conditionalNext || []).forEach((rule, rIdx) => {
+            let pathReqsHTML = '';
+            (rule.reqs || []).forEach((r, reqIdx) => {
+                let t = story.globalVars[r.var]?.type;
+                let ops = '', vals = '';
+                if(t === 'flag') {
+                    ops = `<select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="window.updateBranchReq(${i}, ${rIdx}, ${reqIdx}, 'val', parseInt(this.value))"><option value="1" ${r.val===1?'selected':''}>Is On</option><option value="0" ${r.val===0?'selected':''}>Is Off</option></select>`;
+                } else if(t === 'char' || t === 'npc') {
+                    ops = `<select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="window.updateBranchReq(${i}, ${rIdx}, ${reqIdx}, 'op', this.value)"><option value="==" ${r.op==='=='?'selected':''}>Is</option><option value="!=" ${r.op==='!='?'selected':''}>Is Not</option></select>`;
+                    vals = `<input type="text" style="flex:1; width:50px; border:1px solid #ddd; border-radius:4px; padding:2px;" value="${r.val}" onchange="window.updateBranchReq(${i}, ${rIdx}, ${reqIdx}, 'val', this.value)">`;
+                } else {
+                    ops = `<select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="window.updateBranchReq(${i}, ${rIdx}, ${reqIdx}, 'op', this.value)">
+                        <option value="has" ${r.op==='has'?'selected':''}>Has</option>
+                        <option value=">=" ${r.op==='>='?'selected':''}>&ge;</option>
+                        <option value="<=" ${r.op==='<='?'selected':''}>&le;</option>
+                        <option value="==" ${r.op==='=='?'selected':''}>==</option>
+                        <option value="!=" ${r.op==='!='?'selected':''}>&ne;</option>
+                        <option value=">" ${r.op==='>'?'selected':''}>&gt;</option>
+                        <option value="<" ${r.op==='<'?'selected':''}>&lt;</option>
+                    </select>`;
+                    if(r.op !== 'has') vals = `<input type="number" style="flex:1; width:50px; border:1px solid #ddd; border-radius:4px; padding:2px;" value="${r.val}" onchange="window.updateBranchReq(${i}, ${rIdx}, ${reqIdx}, 'val', parseInt(this.value))">`;
+                }
+                pathReqsHTML += `<div style="display:flex; gap:5px; margin-top:4px; align-items:center; background:#f8fafc; padding:4px; border:1px solid #e2e8f0; border-radius:4px;">
+                    <span style="font-size:0.7rem; color:#475569;">Req:</span>
+                    <select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:2px;" onchange="window.updateBranchReq(${i}, ${rIdx}, ${reqIdx}, 'var', this.value)"><option value="">- Var -</option>${Object.keys(story.globalVars).map(v => `<option value="${v}" ${r.var === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
+                    ${r.var ? ops : ''}
+                    ${r.var && vals ? vals : ''}
+                    <button class="btn-d" style="width:auto; margin:0; padding:2px 6px;" onclick="window.removeBranchReq(${i}, ${rIdx}, ${reqIdx})">✕</button>
+                </div>`;
+            });
+
+            let ruleLogicSelect = (rule.reqs && rule.reqs.length > 1) ? `Logic: <select style="border:none; background:transparent; font-weight:bold; color:#475569; font-size:0.75rem; cursor:pointer;" onchange="window.updateChoiceBranch(${i}, ${rIdx}, 'reqLogic', this.value)"><option value="AND" ${rule.reqLogic==='AND'?'selected':''}>AND</option><option value="OR" ${rule.reqLogic==='OR'?'selected':''}>OR</option></select>` : '';
+
+            branchHTML += `
+            <div class="effect-row" style="display:flex; flex-direction:column; gap:5px; margin-top:8px; background:#fff; padding:8px; border:1px dashed #cbd5e1; border-radius:4px;">
+                <div style="display:flex; align-items:center; gap:5px;">
+                    <span style="font-size:0.75rem; font-weight:bold; color:#f59e0b; min-width:85px;">If / Else If:</span>
+                    <span style="font-size:0.7rem; color:#475569; margin-left:auto;">${ruleLogicSelect}</span>
+                    <button class="btn-s" style="width:auto; margin:0; padding:2px 6px; font-size:0.7rem;" onclick="window.addBranchReq(${i}, ${rIdx})">+ Add Condition</button>
+                </div>
+                ${pathReqsHTML}
+                <div style="display:flex; align-items:center; gap:5px; margin-top:4px;">
+                    <span style="font-size:0.75rem; font-weight:bold; color:#64748b;">Go to:</span>
+                    <select style="flex:1.5; border:1px solid #ddd; border-radius:4px; padding:4px;" onchange="window.updateChoiceBranch(${i}, ${rIdx}, 'next', this.value)">
+                        <option value="">- Block -</option>
+                        ${story.blocks.map(b2 => `<option value="${b2.id}" ${rule.next === b2.id ? 'selected' : ''}>→ ${b2.id}</option>`).join('')}
+                    </select>
+                    <select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:4px;" onchange="window.updateChoiceBranch(${i}, ${rIdx}, 'persistFlag', this.value)">
+                        <option value="">Set Flag: None</option>
+                        ${Object.keys(story.globalVars).map(v => `<option value="${v}" ${(rule.persistFlag || '') === v ? 'selected' : ''}>${v}</option>`).join('')}
+                    </select>
+                    <select style="flex:1; border:1px solid #ddd; border-radius:4px; padding:4px;" onchange="window.updateChoiceBranch(${i}, ${rIdx}, 'promptChar', this.value)">
+                        <option value="">Rename: None</option>
+                        ${Object.keys(story.globalVars).filter(k => story.globalVars[k].type === 'char' || story.globalVars[k].type === 'npc').map(v => `<option value="${v}" ${(rule.promptChar || '') === v ? 'selected' : ''}>${v}</option>`).join('')}
+                    </select>
+                    <button class="btn-d" style="width:auto; margin:0; padding:4px 8px;" onclick="window.removeChoiceBranch(${i}, ${rIdx})">🗑 Path</button>
+                </div>
+            </div>`;
+        });
+
+        branchHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.8rem; width:100%;" onclick="window.addChoiceBranch(${i})">+ Add Conditional Path</button></div>`;
 
         return `<div class="card" style="border: 1px solid #ddd; background:#fafafa; margin-top:10px;">
     <input value="${c.txt}" oninput="updateChoice(${i}, 'txt', this.value)" placeholder="Choice Text" style="width:100%; margin-bottom:10px; font-weight:bold;">
     <div class="choice-grid">
         ${effectsHTML}
         ${reqsHTML}
-        <div><label style="font-size:0.8rem; font-weight:bold;">Persistence</label><select onchange="updateChoice(${i}, 'persistFlag', this.value)"><option value="">Set Flag On...</option>${vOpt.replace(`value="${c.persistFlag}"`, `value="${c.persistFlag}" selected`)}</select><label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label></div>
-        <div><label style="font-size:0.8rem; font-weight:bold;">Max Uses</label><input type="number" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))"><label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
-            ${story.useDayCycle ? `${story.useDayCycle ? `<div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.8rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="font-size:0.8rem; cursor:help;">Add Time Phases: <input type="number" title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="min-width:60px; max-width:100px; padding:4px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.8rem; display:flex; align-items:center; gap:6px;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>` : ''}` : ''}
+        ${branchHTML}
+
+        <div style="grid-column: span 2; margin-top:5px;"><label style="font-size:0.8rem; font-weight:bold;">Max Uses</label>
+        <div style="display:flex; gap:15px; align-items:center;">
+            <input type="number" style="max-width:80px;" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))">
+            <label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
+            <label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label>
         </div>
-        <div><label style="font-size:0.8rem; font-weight:bold;">Prompt Name Change</label><select onchange="updateChoice(${i}, 'promptChar', this.value)"><option value="">None</option>${cOpt.replace(`value="${c.promptChar}"`, `value="${c.promptChar}" selected`)}</select></div>
-        <div class="sub-panel"><label style="font-size:0.8rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.85rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
+        </div>
+
+        ${story.useDayCycle ? `${story.useDayCycle ? `<div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.8rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="font-size:0.8rem; cursor:help;">Add Time Phases: <input type="number" title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="min-width:60px; max-width:100px; padding:4px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.8rem; display:flex; align-items:center; gap:6px;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>` : ''}` : ''}
+
+        <div class="sub-panel" style="grid-column: span 2; margin-top:5px;"><label style="font-size:0.8rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.85rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
     </div>
-    <select style="margin-top:10px; width:100%;" onchange="updateChoice(${i}, 'next', this.value)"><option value="">Stay here...</option>${story.blocks.map(bl => `<option value="${bl.id}" ${bl.id === c.next ? 'selected' : ''}>→ ${bl.id}</option>`).join('')}</select>
+
     <button class="btn-d" onclick="removeChoice(${i})" style="margin-top:10px; width:100%;">Remove Choice</button>
 </div>`;
     }).join('');
@@ -1478,6 +1711,7 @@ window.unequipItem = function(type) {
 };
 
 window.renderStep = function() {
+    if (window.clearMsg) window.clearMsg();
     if (window.checkStatEvents()) {
         window.renderStep();
         return;
@@ -1515,12 +1749,47 @@ window.renderStep = function() {
         const times = pState.usage[c.id] || 0;
         if (c.maxUses > 0 && times >= c.maxUses) return;
 
-        let met = window.evaluateReqLogic(c.reqs, c.reqLogic, pState.vars);
+        let met = false;
+
+        // 1. Evaluate Default Path requirements
         if (!c.reqs || c.reqs.length === 0) {
-            if (c.reqVar) {
-                const cur = pState.vars[c.reqVar]?.val || 0;
-                met = window.checkLogic(cur, c.reqMin, c.reqMax);
+            met = true;
+        } else {
+            if (window.evaluateReqLogic(c.reqs, c.reqLogic || 'AND', pState.vars)) met = true;
+        }
+
+        // 2. Evaluate Conditional Paths requirements
+        if (c.conditionalNext && c.conditionalNext.length > 0) {
+            for (let rule of c.conditionalNext) {
+                if (rule.reqs && rule.reqs.length > 0) {
+                    if (window.evaluateReqLogic(rule.reqs, rule.reqLogic || 'AND', pState.vars)) {
+                        met = true;
+                        break;
+                    }
+                } else if (rule.var) {
+                    function _localComp(left, op, right) {
+                        const lNum = Number(left); const rNum = Number(right);
+                        const bN = !Number.isNaN(lNum) && !Number.isNaN(rNum);
+                        const a = bN ? lNum : String(left ?? ''); const b = bN ? rNum : String(right ?? '');
+                        switch(op) { case '==':return a==b; case '!=':return a!=b; case '>':return a>b; case '<':return a<b; case '>=':return a>=b; case '<=':return a<=b; default:return false; }
+                    }
+                    const vObj = pState.vars[rule.var];
+                    const curVal = (vObj && typeof vObj === 'object' && 'val' in vObj) ? vObj.val : vObj;
+                    if (_localComp(curVal, rule.op, rule.val)) {
+                        met = true;
+                        break;
+                    }
+                } else {
+                    met = true;
+                    break;
+                }
             }
+        }
+
+        // Backward compat for reqVar
+        if (!met && c.reqVar && (!c.reqs || c.reqs.length === 0)) {
+            const cur = pState.vars[c.reqVar]?.val || 0;
+            met = window.checkLogic(cur, c.reqMin, c.reqMax);
         }
 
         const isAlreadyPersistent = c.persistFlag && pState.vars[c.persistFlag]?.val === 1;
@@ -1536,38 +1805,99 @@ window.renderStep = function() {
         btn.innerText = label;
 
         btn.onclick = () => {
-            if (!met) return window.msg(c.lockedMsg || "Locked!");
+            if (!met) return window.msg(c.lockedMsg || "Locked!", true);
 
-            if (c.promptChar && pState.vars[c.promptChar]) { 
-                const n = prompt(`Name:`, pState.vars[c.promptChar].val); 
-                if (n) pState.vars[c.promptChar].val = n.trim(); 
+            function getVarValue(varName) {
+                const v = pState.vars?.[varName];
+                if (v && typeof v === 'object' && 'val' in v) return v.val;
+                return v;
             }
 
-            if (!isAlreadyPersistent) {
-                if (c.persistFlag && pState.vars[c.persistFlag]) {
-                    pState.vars[c.persistFlag].val = 1;
+            function compareValues(left, op, right) {
+                const lNum = Number(left);
+                const rNum = Number(right);
+                const bothNumeric = !Number.isNaN(lNum) && !Number.isNaN(rNum);
+                const a = bothNumeric ? lNum : String(left ?? '');
+                const b = bothNumeric ? rNum : String(right ?? '');
+
+                switch (op) {
+                    case '==': return a == b;
+                    case '!=': return a != b;
+                    case '>': return a > b;
+                    case '<': return a < b;
+                    case '>=': return a >= b;
+                    case '<=': return a <= b;
+                    default: return false;
                 }
-                if (c.effects) {
-                    c.effects.forEach(eff => {
-                        if (eff.var && pState.vars[eff.var]) {
-                            if (eff.type === 'take') {
-                                pState.vars[eff.var].val -= (eff.amt || 0);
-                                if (pState.config[eff.var]) window.showToast(`- ${eff.amt || 0} ${eff.var}`, 'bad');
-                            } else if (eff.type === 'give') {
-                                pState.vars[eff.var].val += (eff.amt || 0);
-                                if (pState.config[eff.var]) window.showToast(`+ ${eff.amt || 0} ${eff.var}`, 'good');
-                            }
+            }
+
+            let nextBlockId = c.next;
+            let activePromptChar = c.promptChar;
+            let activePersistFlag = c.persistFlag;
+
+            // Check if the default path conditions are met.
+            // If they are, use the default destination and skip conditionals.
+            // If they aren't, walk the conditional paths in order — first match wins.
+            const defaultReqsMet = (!c.reqs || c.reqs.length === 0)
+                ? true
+                : window.evaluateReqLogic(c.reqs, c.reqLogic || 'AND', pState.vars);
+
+            if (!defaultReqsMet) {
+                for (const rule of (c.conditionalNext || [])) {
+                    let branchMet = false;
+                    if (rule.reqs && rule.reqs.length > 0) {
+                        branchMet = window.evaluateReqLogic(rule.reqs, rule.reqLogic || 'AND', pState.vars);
+                    } else if (rule.var) {
+                        const currentValue = getVarValue(rule.var);
+                        branchMet = compareValues(currentValue, rule.op, rule.val);
+                    } else {
+                        branchMet = false;
+                    }
+
+                    if (branchMet && rule.next) {
+                        nextBlockId = rule.next;
+                        if (rule.persistFlag !== undefined && rule.persistFlag !== '') activePersistFlag = rule.persistFlag;
+                        if (rule.promptChar !== undefined && rule.promptChar !== '') activePromptChar = rule.promptChar;
+                        break;
+                    }
+                }
+            }
+
+            if (activePromptChar && pState.vars[activePromptChar]) { 
+                const n = prompt(`Name:`, pState.vars[activePromptChar].val); 
+                if (n) pState.vars[activePromptChar].val = n.trim(); 
+            }
+
+            let wasPersistent = !!(activePersistFlag && pState.vars[activePersistFlag] && pState.vars[activePersistFlag].val === 1);
+
+            // Effects always fire regardless of persistFlag state.
+            // wasPersistent only gates the persistFlag-setting logic below.
+            if (c.effects) {
+                c.effects.forEach(eff => {
+                    if (eff.var && pState.vars[eff.var]) {
+                        const before = pState.vars[eff.var].val || 0;
+                        if (eff.type === 'take') {
+                            const after = Math.max(0, before - (eff.amt || 0));
+                            pState.vars[eff.var].val = after;
+                            if (after !== before) window.showToast(`- ${before - after} ${eff.var}`, 'bad');
+                        } else if (eff.type === 'give') {
+                            const after = before + (eff.amt || 0);
+                            pState.vars[eff.var].val = after;
+                            if (after !== before) window.showToast(`+ ${eff.amt || 0} ${eff.var}`, 'good');
                         }
-                    });
-                }
+                    }
+                });
+            }
+
+            if (!wasPersistent && activePersistFlag && pState.vars[activePersistFlag]) {
+                pState.vars[activePersistFlag].val = 1;
             }
 
             if (story.useDayCycle && pState.vars['TimeOfDay']) {
                 let timeAdd = c.timeAdd !== undefined ? c.timeAdd : (c.passTime === false ? 0 : 1);
-    if (timeAdd > 0) window.tickCooldowns(timeAdd);
+                if (timeAdd > 0) window.tickCooldowns(timeAdd);
                 let forceNextDay = !!c.forceNextDay;
 
-                // Safe check if Day exists
                 if (!pState.vars['Day']) {
                     pState.vars['Day'] = { type: 'stat', val: 1, stats: null };
                 }
@@ -1603,7 +1933,9 @@ window.renderStep = function() {
             }
 
             pState.usage[c.id] = (pState.usage[c.id] || 0) + 1;
-            if (c.next) pState.bId = c.next;
+
+            if (nextBlockId) pState.bId = nextBlockId;
+
             if (window._forcedBlock) {
                 pState.bId = window._forcedBlock;
                 window._forcedBlock = null;
@@ -1630,14 +1962,40 @@ window.addChoiceEffect = function(cIdx) {
 };
 window.updateChoiceEffect = function(cIdx, eIdx, field, val) {
     story.blocks[bIdx].choices[cIdx].effects[eIdx][field] = val;
-    window.renderChoices();
+    if (field !== 'amt') window.renderChoices();
 };
 window.removeChoiceEffect = function(cIdx, eIdx) {
     story.blocks[bIdx].choices[cIdx].effects.splice(eIdx, 1);
     window.renderChoices();
 };
 window.addChoice = function() {
-    story.blocks[bIdx].choices.push({ id: Date.now().toString(), txt: 'New Choice', next: '', effects: [], reqs: [], hideLocked: false, maxUses: 0, showUsage: true, persistFlag: '', promptChar: '', lockedMsg: '', timeAdd: 1, forceNextDay: false });
+    story.blocks[bIdx].choices.push({ id: Date.now().toString(), txt: 'New Choice', next: '', conditionalNext: [], effects: [], reqs: [], hideLocked: false, maxUses: 0, showUsage: true, persistFlag: '', promptChar: '', lockedMsg: '', timeAdd: 1, forceNextDay: false });
+    window.renderChoices();
+};
+
+window.addChoiceBranch = function(cIdx) {
+    if (!story.blocks[bIdx].choices[cIdx].conditionalNext) story.blocks[bIdx].choices[cIdx].conditionalNext = [];
+    story.blocks[bIdx].choices[cIdx].conditionalNext.push({ reqLogic: 'AND', reqs: [], next: '', persistFlag: '', promptChar: '' });
+    window.renderChoices();
+};
+window.updateChoiceBranch = function(cIdx, rIdx, field, value) {
+    story.blocks[bIdx].choices[cIdx].conditionalNext[rIdx][field] = value;
+};
+window.removeChoiceBranch = function(cIdx, rIdx) {
+    story.blocks[bIdx].choices[cIdx].conditionalNext.splice(rIdx, 1);
+    window.renderChoices();
+};
+window.addBranchReq = function(cIdx, rIdx) {
+    if (!story.blocks[bIdx].choices[cIdx].conditionalNext[rIdx].reqs) story.blocks[bIdx].choices[cIdx].conditionalNext[rIdx].reqs = [];
+    story.blocks[bIdx].choices[cIdx].conditionalNext[rIdx].reqs.push({ var: '', op: '>=', val: 1 });
+    window.renderChoices();
+};
+window.updateBranchReq = function(cIdx, rIdx, reqIdx, field, val) {
+    story.blocks[bIdx].choices[cIdx].conditionalNext[rIdx].reqs[reqIdx][field] = val;
+    window.renderChoices();
+};
+window.removeBranchReq = function(cIdx, rIdx, reqIdx) {
+    story.blocks[bIdx].choices[cIdx].conditionalNext[rIdx].reqs.splice(reqIdx, 1);
     window.renderChoices();
 };
 window.updateChoice = function(idx, f, v) { story.blocks[bIdx].choices[idx][f] = v; };
@@ -1848,7 +2206,7 @@ window.removeBlock = function(i) {
 window.saveStory = async function() {
     await saveStoryToDB(story);
     await refreshLibrary();
-    window.showScreen('dash-screen');
+    window.showToast('Story saved successfully.', 'good');
 };
 
 
@@ -1865,12 +2223,12 @@ window.showToast = function(msg, type='neutral') {
     if (!tc) {
         tc = document.createElement('div');
         tc.id = 'toast-container';
-        tc.style.cssText = "position:fixed; bottom:20px; right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none;";
+        tc.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:10000; display:flex; flex-direction:column; gap:10px; pointer-events:none; align-items:center;";
         document.body.appendChild(tc);
     }
     let toast = document.createElement('div');
     let bg = type === 'good' ? 'rgba(16, 185, 129, 0.9)' : type === 'bad' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(51, 65, 85, 0.9)';
-    toast.style.cssText = `background:${bg}; color:white; padding:10px 20px; border-radius:4px; font-size:0.85rem; font-weight:bold; box-shadow:0 4px 6px rgba(0,0,0,0.3); opacity:0; transform:translateY(20px); transition:all 0.3s ease;`;
+    toast.style.cssText = `background:${bg}; color:white; padding:10px 20px; border-radius:4px; font-size:0.85rem; font-weight:bold; box-shadow:0 4px 6px rgba(0,0,0,0.3); opacity:0; transform:translateY(-20px); transition:all 0.3s ease;`;
     toast.innerText = msg;
     tc.appendChild(toast);
 
@@ -1882,32 +2240,41 @@ window.showToast = function(msg, type='neutral') {
     }, 2500);
 };
 
-window.playtestCurrentBlock = function() {
-    pState = { 
-        bId: story.blocks[bIdx].id, 
-        vars: JSON.parse(JSON.stringify(story.globalVars)), 
-        config: story.varConfig, 
-        usage: {}, 
-        slot: 0, 
-        equipped: {weapon: null, armor: null} 
+
+window.exitPlay = function() {
+    if (window.isPlaytesting) {
+        window.isPlaytesting = false;
+        window.showScreen('edit-screen');
+        return;
+    }
+    window.showScreen('dash-screen');
+};
+
+window.playtestCurrentBlock = async function() {
+    await saveStoryToDB(story);
+    story = await loadStoryFromDB(story.id);
+    pState = {
+        bId: story.blocks[bIdx] ? story.blocks[bIdx].id : story.blocks[0].id,
+        vars: JSON.parse(JSON.stringify(story.globalVars)),
+        config: story.varConfig,
+        usage: {},
+        slot: 0,
+        firedEvents: {},
+        cooldowns: {},
+        usesLeft: {},
+        equipped: { weapon: null, armor: null }
     };
     window.isPlaytesting = true;
 
-    let pb = document.getElementById('playtest-back-btn');
-    if (!pb) {
-        pb = document.createElement('button');
-        pb.id = 'playtest-back-btn';
-        pb.className = 'btn-d';
-        pb.style.cssText = "position:absolute; top:10px; right:10px; background:#ef4444; width:auto; z-index:1000; box-shadow:0 4px 10px rgba(0,0,0,0.3); font-weight:bold;";
-        pb.innerText = "✖ Exit Test";
-        pb.onclick = () => {
+    const exitBtn = document.getElementById('btn-play-exit');
+    if (exitBtn) {
+        exitBtn.innerText = "← Go Back";
+        exitBtn.onclick = () => {
             window.isPlaytesting = false;
             window.showScreen('edit-screen');
-            pb.style.display = 'none';
         };
-        document.getElementById('play-screen').appendChild(pb);
+        exitBtn.style.display = 'inline-block';
     }
-    pb.style.display = 'block';
 
     window.showScreen('play-screen');
     window.renderStep();
@@ -1936,11 +2303,24 @@ window.showScreen = function(id) {
     document.getElementById(id).classList.add('active');
 };
 
-window.msg = function(m) {
+window.msgTimeout = null;
+window.msg = function(m, keepOpen=false) {
     const el = document.getElementById('game-msg');
+    if (!el) return;
     el.innerText = m;
     el.style.display = 'block';
-    setTimeout(() => el.style.display = 'none', 2000);
+    if (window.msgTimeout) clearTimeout(window.msgTimeout);
+    if (!keepOpen) {
+        window.msgTimeout = setTimeout(() => {
+            el.style.display = 'none';
+        }, 2000);
+    }
+}
+
+window.clearMsg = function() {
+    const el = document.getElementById('game-msg');
+    if (el) el.style.display = 'none';
+    if (window.msgTimeout) clearTimeout(window.msgTimeout);
 };
 
 window.triggerImport = function() { document.getElementById('file-in').click(); };
@@ -2008,6 +2388,15 @@ window.pmNewGame = async function() {
     const entry = story.blocks.find(b => b.id.toLowerCase().includes('starting'));
     pState = { bId: entry ? entry.id : story.blocks[0].id, vars: JSON.parse(JSON.stringify(story.globalVars)), config: story.varConfig, usage: {}, slot: slotNum, equipped: {weapon: null, armor: null} };
     window.pmClose();
+    window.isPlaytesting = false;
+
+        const exitBtn = document.getElementById('btn-play-exit');
+    if (exitBtn) {
+        exitBtn.innerText = "← Exit";
+        exitBtn.onclick = window.exitPlay;
+        exitBtn.style.display = 'inline-block';
+    }
+
     window.showScreen('play-screen');
     window.renderStep();
 };
@@ -2032,8 +2421,17 @@ window.pmLoadGame = async function(saveId, slotNum) {
     const db = await openDB();
     const save = await idbReq(db.transaction('GameSaves', 'readonly').objectStore('GameSaves').get(saveId));
     if (!save) return;
-    pState = { bId: save.CurrentBlock, vars: JSON.parse(save.VariablesJSON), usage: JSON.parse(save.UsageJSON || '{}'), config: story.varConfig, slot: slotNum, equipped: JSON.parse(save.EquippedJSON || '{"weapon":null,"armor":null}') };
+    pState = { bId: save.CurrentBlock, vars: JSON.parse(save.VariablesJSON), usage: JSON.parse(save.UsageJSON || '{}'), config: story.varConfig, slot: slotNum, equipped: JSON.parse(save.EquippedJSON || '{"weapon":null,"armor":null}'), firedEvents: JSON.parse(save.FiredEventsJSON || '{}'), cooldowns: JSON.parse(save.CooldownsJSON || '{}'), usesLeft: JSON.parse(save.UsesLeftJSON || '{}') };
     window.pmClose();
+    window.isPlaytesting = false;
+
+        const exitBtn = document.getElementById('btn-play-exit');
+    if (exitBtn) {
+        exitBtn.innerText = "← Exit";
+        exitBtn.onclick = window.exitPlay;
+        exitBtn.style.display = 'inline-block';
+    }
+
     window.showScreen('play-screen');
     window.renderStep();
 };
@@ -2085,7 +2483,10 @@ window.saveGameState = async function() {
             CurrentBlock: pState.bId, 
             VariablesJSON: JSON.stringify(pState.vars), 
             UsageJSON: JSON.stringify(pState.usage), 
-            EquippedJSON: JSON.stringify(pState.equipped || {}) 
+            EquippedJSON: JSON.stringify(pState.equipped || {}),
+            FiredEventsJSON: JSON.stringify(pState.firedEvents || {}),
+            CooldownsJSON: JSON.stringify(pState.cooldowns || {}),
+            UsesLeftJSON: JSON.stringify(pState.usesLeft || {})
         };
 
         if (existing) saveObj.Save_ID = existing.Save_ID;
