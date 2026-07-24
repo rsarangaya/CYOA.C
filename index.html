@@ -6,7 +6,8 @@
     <title>CYOA.C</title>
     <link rel="stylesheet" href="style.css">
 
-<script src="script.js"></script>
+<script src="publish-assets.js" defer></script>
+<script src="script.js" defer></script>
 </head>
 <body>
 
@@ -65,8 +66,9 @@
     </div>
     <div id="story-list"></div>
     <div class="card action-bar" style="display: flex; gap: 10px; margin-top: 20px;">
-        <button class="btn-p" onclick="openEditor()">+ Create New Story</button>
-        <button class="btn-s" onclick="triggerImport()">📥 Import JSON</button>
+        <button class="btn-p" onclick="openEditor()" title="Start a brand-new story">+ Create New Story</button>
+        <button class="btn-s" onclick="triggerImport()" title="Load a story (or a library backup) from a .json file">📥 Import JSON</button>
+        <button class="btn-s" onclick="exportAllStories()" title="Download every story as a single backup file you can re-import later">💾 Backup Library</button>
         <input type="file" id="file-in" style="display:none" accept=".json">
     </div>
 </div>
@@ -74,11 +76,12 @@
 <!-- EDITOR SCREEN -->
 <div id="edit-screen" class="screen">
     <div class="editor-header-bar">
-        <button class="btn-s" onclick="showScreen('dash-screen')">← Dashboard</button>
+        <button class="btn-s" onclick="leaveEditor()">← Dashboard</button>
         <input type="text" id="ed-title" class="story-title-input" placeholder="Story Title">
         <div style="display: flex; gap: 10px;">
-            <button class="btn-s" onclick="exportStory()">Export</button>
-            <button class="btn-p" onclick="saveStory()">Save</button>
+            <button class="btn-s" onclick="exportStory()" title="Download this story as a .json backup you can re-import or share">Export</button>
+            <button class="btn-s" onclick="publishStory()" title="Download a single self-contained .html file that anyone can play, no editor needed">🚀 Publish</button>
+            <button class="btn-p" onclick="saveStory()" title="Save this story to your browser">Save</button>
         </div>
     </div>
 
@@ -93,7 +96,10 @@
             <div style="flex:1; overflow-y:auto; padding:15px; background:#1e293b;">
                 <!-- BLOCKS TAB -->
                 <div id="tab-blocks" class="sidebar-tab-content" style="display:block;">
-                    <button class="btn-p" style="width: 100%; margin-bottom:15px; position:sticky; top:0; z-index:10;" onclick="addBlock()">+ Add Block</button>
+                    <div class="blocks-toolbar">
+                        <button class="btn-p" onclick="addBlock()">+ Add Block</button>
+                        <button class="btn-s" onclick="createBlockGroup()">📁 New Folder</button>
+                    </div>
                     <div id="ed-blocks-menu"></div>
                 </div>
 
@@ -122,6 +128,11 @@
                 
                 <hr style="margin: 20px 0; border: 0; border-top: 1px solid #ddd;">
                 <div id="extra-text-container"></div>
+
+                <details style="margin-top:15px; border-top:1px solid #eee; padding-top:12px;">
+                    <summary style="cursor:pointer; font-weight:700; font-size:0.85rem; color:#475569;">📝 Author notes (private)</summary>
+                    <textarea id="ed-blk-notes" rows="3" placeholder="Notes to yourself about this block. Never shown to players." style="margin-top:8px;"></textarea>
+                </details>
             </div>
 
             <div class="card">
@@ -138,7 +149,11 @@
 <!-- PLAY SCREEN -->
 <div id="play-screen" class="screen">
     <div class="header-row">
-        <button id="btn-play-exit" class="btn-s" onclick="exitPlay()">← Exit</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btn-play-exit" class="btn-s" onclick="exitPlay()" title="Leave and return to your library">← Exit</button>
+            <button id="btn-play-back" class="btn-s" onclick="playBack()" title="Undo your last choice">↩ Back</button>
+            <button id="btn-play-restart" class="btn-s" onclick="playRestart()" title="Start this story over from the beginning">⟳ Restart</button>
+        </div>
         <h2 id="p-title"></h2>
     </div>
     <div id="game-msg"></div>
@@ -150,7 +165,7 @@
         <div class="sidebar-box">
             <h3 style="color: white; margin-top: 0;">🎒 Backpack</h3>
             <div id="p-inventory"></div>
-            <button class="btn-p" style="width:100%; margin-top: 15px;" onclick="saveGameState()">💾 Save Game</button>
+            <button class="btn-p" style="width:100%; margin-top: 15px;" onclick="saveGameState()" title="Save your current progress to a slot">💾 Save Game</button>
             <div id="save-msg" style="color: #4ade80; font-size: 0.8rem; text-align:center; margin-top: 5px; display:none;">Progress Saved!</div>
         </div>
     </div>

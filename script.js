@@ -4,6 +4,130 @@ let pState = { bId: null, vars: {}, config: {}, usage: {}, slot: 1 };
 let authMode = 'signin';
 let recoveryUserRecord = null;
 
+/* Number of save slots per story per user. Change this one value to allow more/fewer saves. */
+window.MAX_SAVE_SLOTS = 3;
+
+/* Build a normalized play-state object shared by New Game, Continue, and Test Block. */
+window.createPlayState = function(opts) {
+    opts = opts || {};
+    return {
+        bId: opts.bId || null,
+        vars: opts.vars || JSON.parse(JSON.stringify(story.globalVars)),
+        config: opts.config || story.varConfig,
+        usage: opts.usage || {},
+        slot: (opts.slot != null) ? opts.slot : 0,
+        firedEvents: opts.firedEvents || {},
+        cooldowns: opts.cooldowns || {},
+        usesLeft: opts.usesLeft || {},
+        equipped: opts.equipped || { weapon: null, armor: null },
+        history: opts.history || []
+    };
+};
+
+/* ---- In-play navigation: Back / Restart ---- */
+window.pushHistory = function() {
+    if (!pState.history) pState.history = [];
+    pState.history.push(JSON.stringify({
+        bId: pState.bId, vars: pState.vars, usage: pState.usage,
+        equipped: pState.equipped, cooldowns: pState.cooldowns,
+        usesLeft: pState.usesLeft, firedEvents: pState.firedEvents
+    }));
+    if (pState.history.length > 100) pState.history.shift();
+};
+window.playBack = function() {
+    if (!pState.history || pState.history.length === 0) return;
+    const snap = JSON.parse(pState.history.pop());
+    pState.bId = snap.bId; pState.vars = snap.vars; pState.usage = snap.usage;
+    pState.equipped = snap.equipped; pState.cooldowns = snap.cooldowns;
+    pState.usesLeft = snap.usesLeft; pState.firedEvents = snap.firedEvents;
+    window.renderStep();
+};
+window.playRestart = function() {
+    if (!confirm('Restart from the beginning? Progress in this session will be lost (saved games are untouched).')) return;
+    let entry = null;
+    if (story.startBlock) entry = story.blocks.find(b => b.id === story.startBlock);
+    if (!entry) entry = story.blocks.find(b => b.id.toLowerCase().includes('starting'));
+    pState = window.createPlayState({ bId: entry ? entry.id : story.blocks[0].id, slot: pState.slot });
+    window.renderStep();
+};
+
+/* =========================================================
+   UTILITY HELPERS (added)
+========================================================= */
+// Escape a string so it can be used literally inside a RegExp.
+window.escapeRegExp = function(str) {
+    return String(str).replace(/[^A-Za-z0-9_ ]/g, function(ch) { return '\\' + ch; });
+};
+// Escape a string for safe insertion into HTML.
+window.escapeHtml = function(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, function(s) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s];
+    });
+};
+// Restrict variable / stat names to safe characters.
+window.sanitizeVarName = function(name) {
+    return String(name == null ? '' : name).replace(/[^A-Za-z0-9_ ]/g, '').trim();
+};
+// Hash a password (SHA-256 when available, weak fallback otherwise). Never stores plaintext.
+async function hashPassword(pw) {
+    const str = String(pw);
+    if (window.crypto && crypto.subtle) {
+        try {
+            const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+            return 'sha256$' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (e) { /* fall through to weak hash */ }
+    }
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) { h = ((h << 5) + h) + str.charCodeAt(i); h |= 0; }
+    return 'weak$' + (h >>> 0).toString(16);
+}
+
+/* ---- Unsaved-changes tracking ---- */
+window._editorDirty = false;
+window.markDirty = function() { window._editorDirty = true; };
+window.clearDirty = function() { window._editorDirty = false; };
+window.leaveEditor = function() {
+    if (window._editorDirty && !confirm('You have unsaved changes. Leave the editor and discard them?')) return;
+    window.clearDirty();
+    window.showScreen('dash-screen');
+    if (window.refreshLibrary) refreshLibrary();
+};
+window.addEventListener('beforeunload', function(e) {
+    const ed = document.getElementById('edit-screen');
+    if (ed && ed.classList.contains('active') && window._editorDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+['input', 'change'].forEach(function(evt) {
+    document.addEventListener(evt, function(e) {
+        const ed = document.getElementById('edit-screen');
+        if (ed && ed.classList.contains('active')) window._editorDirty = true;
+    });
+});
+
+/* ---- Tips / help mode ----
+   Hints are always rendered as <div class="cyoa-hint"> and shown/hidden purely
+   via the `tips-on` class on #edit-screen, so toggling needs no re-render.
+   Defaults ON for first-time users; the choice is remembered in localStorage. */
+window.tip = function(text) { return '<div class="cyoa-hint">' + text + '</div>'; };
+window.applyTipsState = function() {
+    const ed = document.getElementById('edit-screen');
+    if (!ed) return;
+    const on = localStorage.getItem('cyoa_tips') !== 'off'; // default ON
+    ed.classList.toggle('tips-on', on);
+    const btn = document.getElementById('btn-tips');
+    if (btn) {
+        btn.innerText = on ? '💡 Tips: On' : '💡 Tips: Off';
+        btn.style.opacity = on ? '1' : '0.65';
+    }
+};
+window.toggleTips = function() {
+    const on = localStorage.getItem('cyoa_tips') !== 'off';
+    localStorage.setItem('cyoa_tips', on ? 'off' : 'on');
+    window.applyTipsState();
+};
+
 /* =========================================================
    UNDO/REDO STACK
 ========================================================= */
@@ -66,7 +190,7 @@ document.addEventListener('mousedown', (e) => {
     if (!ed || !ed.classList.contains('active')) return;
     if (e.target.closest('#btn-undo') || e.target.closest('#btn-redo')) return;
 
-    if (e.target.closest('button') || e.target.closest('.block-list-item') || e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    if (e.target.closest('button') || e.target.closest('.block-menu-item') || e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
         window.saveSnapshot();
     }
 });
@@ -307,17 +431,29 @@ window.handleAuthSubmit = async function() {
     hideAuthMessages();
     if (!user || !pass) return showAuthError('Username and password are required!');
     try {
+        const hashed = await hashPassword(pass);
         const db = await openDB();
         const tx = db.transaction('Users', 'readwrite');
         const store = tx.objectStore('Users');
         let existing = await idbReq(store.index('UserName').get(user));
         if (authMode === 'signin') {
             if (!existing) return showAuthError('User not found. Switch to Sign Up!');
-            if (existing.Password !== pass) return showAuthError('Incorrect password!');
+            if (existing.Password === hashed) {
+                // Password matches the stored hash.
+            } else if (existing.Password === pass) {
+                // Legacy plaintext password: upgrade it transparently on this successful login.
+                existing.Password = hashed;
+                try {
+                    const dbUp = await openDB();
+                    await idbReq(dbUp.transaction('Users', 'readwrite').objectStore('Users').put(existing));
+                } catch (e) { console.error('Password upgrade failed', e); }
+            } else {
+                return showAuthError('Incorrect password!');
+            }
         } else {
             if (existing) return showAuthError('Username taken. Switch to Sign In!');
             if (!sq || !sa) return showAuthError('Security Question and Answer are required for signup!');
-            const uid = await idbReq(store.add({ UserName: user, Password: pass, SecurityQuestion: sq, SecurityAnswer: sa.toLowerCase() }));
+            const uid = await idbReq(store.add({ UserName: user, Password: hashed, SecurityQuestion: sq, SecurityAnswer: sa.toLowerCase() }));
             existing = await idbReq(store.get(uid));
         }
         currentUser = existing;
@@ -376,10 +512,11 @@ window.resetPassword = async function() {
     if (!sa || !newPass) return showAuthError('Please answer the question and provide a new password.');
     if (sa !== recoveryUserRecord.SecurityAnswer) return showAuthError('Incorrect Security Answer!');
     try {
+        const hashedNew = await hashPassword(newPass);
         const db = await openDB();
         const tx = db.transaction('Users', 'readwrite');
         const store = tx.objectStore('Users');
-        recoveryUserRecord.Password = newPass;
+        recoveryUserRecord.Password = hashedNew;
         await idbReq(store.put(recoveryUserRecord));
         showAuthSuccess('Password reset successfully! You can now log in.');
         setTimeout(() => {
@@ -446,12 +583,12 @@ async function refreshLibrary() {
     storiesList = await idbReq(tx.objectStore('Stories').index('Dashboard_ID').getAll(currentDashboardId)) || [];
     document.getElementById('story-list').innerHTML = storiesList.map((s, i) => `
         <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-            <div><strong>${s.Story_Title}</strong></div>
+            <div><strong>${window.escapeHtml(s.Story_Title)}</strong></div>
             <div style="display:flex; gap:8px;">
-                <button class="btn-p" onclick="startPlay(${i})">▶ Play</button>
-                <button class="btn-s" onclick="loadEditor(${i})">✏ Edit</button>
-                <button class="btn-s" style="background:#dcfce7; color:#166534;" onclick="duplicateStory(${i})">📋 Duplicate</button>
-                <button class="btn-d" style="width:auto; margin:0;" onclick="deleteStory(${i})">🗑 Delete</button>
+                <button class="btn-p" onclick="startPlay(${i})" title="Play this story (New Game or Continue)">▶ Play</button>
+                <button class="btn-s" onclick="loadEditor(${i})" title="Open this story in the editor">✏ Edit</button>
+                <button class="btn-s" style="background:#dcfce7; color:#166534;" onclick="duplicateStory(${i})" title="Make a copy of this story">📋 Duplicate</button>
+                <button class="btn-d" style="width:auto; margin:0;" onclick="deleteStory(${i})" title="Permanently delete this story and its saves">🗑 Delete</button>
             </div>
         </div>
     `).join('') || "<p>No stories yet.</p>";
@@ -488,6 +625,7 @@ async function loadStoryFromDB(storyId) {
     let memStory = {
         id: dbStory.Story_ID,
         title: dbStory.Story_Title,
+        startBlock: dbStory.Start_Block_Name || '',
         useDayCycle: !!dbStory.UseDayCycle,
         isRPG: !!dbStory.Is_RPG,
         rpgStats: JSON.parse(dbStory.RPG_Stats_JSON || '["HP","MaxHP","Atk","Def","Dex","Agi"]'),
@@ -507,7 +645,7 @@ async function loadStoryFromDB(storyId) {
 
     for (let bIdx2 = 0; bIdx2 < blocks.length; bIdx2++) {
         const b = blocks[bIdx2];
-        let memBlock = { id: b.Block_Name, text: b.Block_Text, group: b.Block_Group || 'Ungrouped', choices: [], extraTexts: [] };
+        let memBlock = { id: b.Block_Name, text: b.Block_Text, group: b.Block_Group || 'Ungrouped', notes: b.Block_Notes || '', choices: [], extraTexts: [] };
 
         for (let e of extrasArr[bIdx2]) {
             let parsedReqs = [];
@@ -522,10 +660,11 @@ async function loadStoryFromDB(storyId) {
 
         for (let c of choicesArr[bIdx2]) {
             let memChoice = {
-                id: c.Choice_ID.toString(),
+                id: c.Choice_Key || c.Choice_ID.toString(),
                 txt: c.Choice_Text,
                 next: c.Next_Block_Name,
                 hideLocked: c.Hide_Locked,
+                lockedMode: c.Locked_Mode || (c.Hide_Locked ? 'hide' : 'show'),
                 maxUses: c.Max_Uses,
                 showUsage: c.Show_Usage,
                 persistFlag: c.Persist_Flag,
@@ -598,7 +737,8 @@ async function saveStoryToDB(storyObj) {
         RPG_Items_JSON: JSON.stringify(storyObj.rpgItems || {}),
         Block_Groups_JSON: JSON.stringify(storyObj.blockGroups || ['Ungrouped']),
         Daily_Events_JSON: JSON.stringify(storyObj.dailyEvents || []),
-        Stat_Events_JSON: JSON.stringify(storyObj.statEvents || [])
+        Stat_Events_JSON: JSON.stringify(storyObj.statEvents || []),
+        Start_Block_Name: storyObj.startBlock || ''
     };
     if (storyObj.id) sObj.Story_ID = storyObj.id;
     const sid = await txPut('Stories', sObj);
@@ -637,7 +777,7 @@ async function saveStoryToDB(storyObj) {
     // 5. Write new blocks, extraTexts, choices, effects
     for (let b of storyObj.blocks) {
         const bid = await txAdd('StoryBlocks', {
-            Story_ID: sid, Block_Name: b.id, Block_Text: b.text, Block_Group: b.group || 'Ungrouped'
+            Story_ID: sid, Block_Name: b.id, Block_Text: b.text, Block_Group: b.group || 'Ungrouped', Block_Notes: b.notes || ''
         });
         if (b.extraTexts) {
             await Promise.all(b.extraTexts.map(ext => txAdd('ExtraTexts', {
@@ -648,10 +788,11 @@ async function saveStoryToDB(storyObj) {
         }
         for (let c of b.choices) {
             const cid = await txAdd('Choices', {
-                StoryBlock_ID: bid, Choice_Text: c.txt, Next_Block_Name: c.next||'',
+                StoryBlock_ID: bid, Choice_Key: (c.id != null ? String(c.id) : ''),
+                Choice_Text: c.txt, Next_Block_Name: c.next||'',
                 Reqs_JSON: JSON.stringify(c.reqs || []), Req_Logic: c.reqLogic || 'AND',
                 Conditional_Next_JSON: JSON.stringify(c.conditionalNext || []),
-                Hide_Locked: !!c.hideLocked, Max_Uses: c.maxUses||0,
+                Hide_Locked: !!c.hideLocked, Locked_Mode: c.lockedMode || (c.hideLocked ? 'hide' : 'show'), Max_Uses: c.maxUses||0,
                 Show_Usage: c.showUsage !== false, Persist_Flag: c.persistFlag||'',
                 Prompt_Char: c.promptChar||'', Locked_Msg: c.lockedMsg||'',
                 Passes_Time: c.passTime !== false,
@@ -674,21 +815,44 @@ window.deleteStory = async function(index) {
     if(!confirm("Delete this story and all relationships?")) return;
     const sid = storiesList[index].Story_ID;
     const db = await openDB();
-    const tx = db.transaction(['Stories', 'StoryBlocks', 'ExtraTexts', 'Choices', 'Variables', 'ChoiceEffects', 'GameSaves'], 'readwrite');
-    tx.objectStore('Stories').delete(sid);
-    const oldBlocks = await idbReq(tx.objectStore('StoryBlocks').index('Story_ID').getAll(sid));
-    for (let b of oldBlocks) {
-        const oldExt = await idbReq(tx.objectStore('ExtraTexts').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
-        for (let e of oldExt) tx.objectStore('ExtraTexts').delete(e.ExtraText_ID);
-        const oldC = await idbReq(tx.objectStore('Choices').index('StoryBlock_ID').getAll(b.StoryBlock_ID));
-        for (let c of oldC) {
-            const oldE = await idbReq(tx.objectStore('ChoiceEffects').index('Choice_ID').getAll(c.Choice_ID));
-            for (let e of oldE) tx.objectStore('ChoiceEffects').delete(e.Effect_ID);
-            tx.objectStore('Choices').delete(c.Choice_ID);
-        }
-        tx.objectStore('StoryBlocks').delete(b.StoryBlock_ID);
+
+    // Use a fresh transaction per operation to avoid IndexedDB auto-committing
+    // across awaits (the same pattern used by save/loadStoryFromDB).
+    function txGetAllByIndex(store, idx, key) {
+        return idbReq(db.transaction(store, 'readonly').objectStore(store).index(idx).getAll(key));
     }
-    tx.oncomplete = async () => await refreshLibrary();
+    function txDelete(store, key) {
+        return idbReq(db.transaction(store, 'readwrite').objectStore(store).delete(key));
+    }
+
+    // Blocks and their children (extra texts, choices, effects)
+    const oldBlocks = await txGetAllByIndex('StoryBlocks', 'Story_ID', sid);
+    for (let b of oldBlocks) {
+        const [oldExt, oldC] = await Promise.all([
+            txGetAllByIndex('ExtraTexts', 'StoryBlock_ID', b.StoryBlock_ID),
+            txGetAllByIndex('Choices', 'StoryBlock_ID', b.StoryBlock_ID)
+        ]);
+        await Promise.all(oldExt.map(e => txDelete('ExtraTexts', e.ExtraText_ID)));
+        for (let c of oldC) {
+            const oldE = await txGetAllByIndex('ChoiceEffects', 'Choice_ID', c.Choice_ID);
+            await Promise.all(oldE.map(e => txDelete('ChoiceEffects', e.Effect_ID)));
+            await txDelete('Choices', c.Choice_ID);
+        }
+        await txDelete('StoryBlocks', b.StoryBlock_ID);
+    }
+
+    // Variables belonging to the story
+    const oldVars = await txGetAllByIndex('Variables', 'Story_ID', sid);
+    await Promise.all(oldVars.map(v => txDelete('Variables', v.Variable_ID)));
+
+    // Save games belonging to the story (previously orphaned)
+    const oldSaves = await txGetAllByIndex('GameSaves', 'Story_ID', sid);
+    await Promise.all(oldSaves.map(s => txDelete('GameSaves', s.Save_ID)));
+
+    // The story record itself
+    await txDelete('Stories', sid);
+
+    await refreshLibrary();
 };
 
 window.duplicateStory = async function(index) {
@@ -706,7 +870,7 @@ window.renderVarTable = function() {
     window.activeVarFilter = window.activeVarFilter || 'stat';
     window.activeVarSearchTerm = window.activeVarSearchTerm || '';
 
-    let varHTML = `<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px; background:#f1f5f9; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
+    let varHTML = `<div class="cyoa-hint">Variables are your story's memory. <b>Stats</b> are numbers, <b>Items</b> are things you carry, <b>Flags</b> are on/off switches, and <b>NPCs</b> are names. Tick <b>HUD</b> to show one in the player's backpack.</div><div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px; background:#f1f5f9; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
         <div style="display:flex; gap:10px; align-items:center;">
             <label style="font-size:0.8rem; font-weight:bold; color:#334155;">View:</label>
             <select style="flex:1;  font-size:0.8rem; border-radius:4px; border:1px solid #94a3b8;" onchange="window.activeVarFilter=this.value; window.renderVarTable();">
@@ -731,13 +895,13 @@ window.renderVarTable = function() {
             rpgModHTML = window.renderRPGModifierUI(key, effType);
         }
 
-        varHTML += `<div class="main-var-card" data-var-name="${key.toLowerCase()}" style="background:white; border-radius:8px; padding:12px; margin-bottom:12px; border-left: 5px solid ${color}; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #333;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><span style="font-size:0.8rem; font-weight:bold; color:${color}; text-transform:uppercase;">${effType}</span><label style="font-size:0.8rem; display:flex; align-items:center; gap:4px; cursor:pointer; color:#666;"><input type="checkbox" ${story.varConfig[key] ? 'checked' : ''} onchange="toggleVarVis('${key}', this.checked)"> HUD</label></div><div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;"><input style="flex:1.5;  font-size:0.8rem; border:1px solid #ddd; border-radius:4px;" value="${key}" onchange="renameVar('${key}', this.value)"><div style="flex:1;">${window.renderVarInput(key, v)}</div><button onclick="deleteVar('${key}')" style="background:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px 10px;">✕</button></div>${effType === 'npc' ? window.renderNPCSubVars(key, v) : ''}${rpgModHTML}</div>`;
+        varHTML += `<div class="main-var-card" data-var-name="${key.toLowerCase()}" style="background:white; border-radius:8px; padding:12px; margin-bottom:12px; border-left: 5px solid ${color}; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #333;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><span style="font-size:0.8rem; font-weight:bold; color:${color}; text-transform:uppercase;">${effType}</span><label style="font-size:0.8rem; display:flex; align-items:center; gap:4px; cursor:pointer; color:#666;"><input type="checkbox" title="Show this variable in the player's backpack during play" ${story.varConfig[key] ? 'checked' : ''} onchange="toggleVarVis('${key}', this.checked)"> HUD</label></div><div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;"><input style="flex:1.5;  font-size:0.8rem; border:1px solid #ddd; border-radius:4px;" value="${key}" onchange="renameVar('${key}', this.value)"><div style="flex:1;">${window.renderVarInput(key, v)}</div><button title="Find everywhere this variable is used" onclick="window.findVarUsage('${key}')" style="background:#e0e7ff; color:#4338ca; border:none; border-radius:4px; padding:6px 10px;">🔍</button><button title="Delete this variable and remove it everywhere" onclick="deleteVar('${key}')" style="background:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px 10px;">✕</button></div>${effType === 'npc' ? window.renderNPCSubVars(key, v) : ''}${rpgModHTML}</div>`;
     }
 
     varHTML += `<button class="btn-p"  style="width:100%; margin-bottom:15px; font-size:0.8rem; padding:10px;" onclick="addTypedVar(window.activeVarFilter)">+ Add Custom ${window.activeVarFilter.toUpperCase()}</button>`;
 
     let eventHTML = '';
-    eventHTML = `<div style="display:inline-block; margin-bottom:15px; padding:6px 12px; background:#f8fafc; border-radius:20px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1);"><label style="font-size:0.75rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; color:#334155; margin:0;"><input type="checkbox" ${story.useDayCycle ? 'checked' : ''} onchange="toggleDayCycle(this.checked)" style="margin:0;"> 🌙 Enable Day/Night Cycle</label></div>`;
+    eventHTML = `<div style="display:inline-block; margin-bottom:15px; padding:6px 12px; background:#f8fafc; border-radius:20px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1);"><label style="font-size:0.75rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; color:#334155; margin:0;"><input type="checkbox" ${story.useDayCycle ? 'checked' : ''} onchange="toggleDayCycle(this.checked)" style="margin:0;"> 🌙 Enable Day/Night Cycle</label></div><div class="cyoa-hint">Adds a clock (TimeOfDay 1-6) and a Day counter. Choices can then advance time, and you can schedule events by day below.</div>`;
 
     if (story.useDayCycle) {
         eventHTML += `<div style="margin-top:10px; background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #fde68a; box-shadow:0 2px 4px rgba(0,0,0,0.05);"><h4 style="margin:0 0 12px 0; font-size:0.9rem; color:#b45309; display:flex; align-items:center; gap:6px;">📅 Scheduled Daily Events</h4>`;
@@ -876,7 +1040,7 @@ window.filterMainVarTable = function() {
 
 window.addStatEvent = function() {
     if(!story.statEvents) story.statEvents = [];
-    story.statEvents.push({reqVar: '', reqOp: '>=', reqVal: 1, type: 'var', varName: '', val: 1, blockName: '', fireOnce: true});
+    story.statEvents.push({id: 'se_' + Date.now() + '_' + Math.floor(Math.random()*10000), reqVar: '', reqOp: '>=', reqVal: 1, type: 'var', varName: '', val: 1, blockName: '', fireOnce: true});
     window.renderEditor();
 };
 window.updateStatEvent = function(i, f, v) { story.statEvents[i][f] = v; window.renderEditor(); };
@@ -889,7 +1053,8 @@ window.checkStatEvents = function() {
     let jumped = false;
     for (let i = 0; i < story.statEvents.length; i++) {
         let ev = story.statEvents[i];
-        if (ev.fireOnce !== false && pState.firedEvents['statEv_'+i]) continue;
+        let evKey = ev.id || ('statEv_' + i);
+        if (ev.fireOnce !== false && pState.firedEvents[evKey]) continue;
         if (!ev.reqVar || !pState.vars[ev.reqVar]) continue;
 
         let cur = pState.vars[ev.reqVar].val;
@@ -902,7 +1067,7 @@ window.checkStatEvents = function() {
         if (ev.reqOp === '<') pass = cur < req;
 
         if (pass) {
-            if (ev.fireOnce !== false) pState.firedEvents['statEv_'+i] = true;
+            if (ev.fireOnce !== false) pState.firedEvents[evKey] = true;
 
             if (ev.type === 'var' && ev.varName && pState.vars[ev.varName]) {
                 pState.vars[ev.varName].val = ev.val;
@@ -1124,10 +1289,14 @@ window.renderEditor = function() {
             ctr.style.alignItems = 'center';
             ctr.style.marginLeft = '15px';
             ctr.innerHTML = `<span style="font-size:0.85rem; font-weight:bold; margin-right:5px; color:#475569;">Folder:</span>
-                             <select id="ed-blk-group" style=" font-size:0.85rem; border-radius:4px; border:1px solid #cbd5e1;" onchange="changeBlockGroup(this.value)"></select>
-                             <button class="btn-s" style=" font-size:0.8rem;" onclick="createBlockGroup()">+ Add Folder</button>
-                             <button class="btn-s" style="background:#10b981; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;" onclick="playtestCurrentBlock()">▶️ Test Block</button>
-                             <button class="btn-s" style="background:#8b5cf6; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;" onclick="window.showStoryboard()">🗺️ Storyboard</button>
+                             <select id="ed-blk-group" style=" font-size:0.85rem; border-radius:4px; border:1px solid #cbd5e1;" onchange="changeBlockGroup(this.value)" title="Move this block into a folder"></select>
+                             <button class="btn-s" style="font-size:0.8rem;" onclick="createBlockGroup()" title="Create a new folder (block group)">+ Add Folder</button>
+                             <button class="btn-s" style="font-size:0.8rem;" onclick="window.duplicateBlock()" title="Make a copy of this block">⧉ Duplicate Block</button>
+                             <button class="btn-s" style="font-size:0.8rem;" onclick="playtestCurrentBlock()" title="Play from this block. Does not save your story.">▶️ Test Block</button>
+                             <button class="btn-s" style="font-size:0.8rem;" onclick="window.showStoryboard()" title="See your whole story as a flowchart">🗺️ Storyboard</button>
+                             <button class="btn-s" style="font-size:0.8rem;" onclick="window.validateStory()" title="Check for broken links, unreachable blocks, and dead ends">✅ Validate</button>
+                             <button id="btn-set-start" class="btn-s" style="background:#f59e0b; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer; font-size:0.8rem;" onclick="window.setStartBlock()" title="Mark this block as where New Game begins">⭐ Set as Start</button>
+                             <button id="btn-tips" class="btn-s" style="font-size:0.8rem;" onclick="window.toggleTips()" title="Show or hide the helper hints throughout the editor">💡 Tips: On</button>
                              <div style="display:flex; gap:5px; margin-left:15px; border-left:2px solid #cbd5e1; padding-left:15px;">
                                  <button id="btn-undo" class="btn-s" style="padding:4px 8px; cursor:pointer; min-width:40px; margin:0;" onclick="window.undo()" title="Undo (Ctrl+Z)">↩️</button>
                                  <button id="btn-redo" class="btn-s" style="padding:4px 8px; cursor:pointer; min-width:40px; margin:0;" onclick="window.redo()" title="Redo (Ctrl+Y)">↪️</button>
@@ -1145,9 +1314,18 @@ window.renderEditor = function() {
             }
             grpSel.innerHTML = safeGroups.map(g => `<option value="${g}" ${currentGroup === g ? 'selected' : ''}>${g}</option>`).join('');
         }
+
+        const startBtn = document.getElementById('btn-set-start');
+        if (startBtn) {
+            const isStart = story.startBlock && story.startBlock === b.id;
+            startBtn.innerText = isStart ? '⭐ Start Block' : '⭐ Set as Start';
+            startBtn.style.background = isStart ? '#16a34a' : '#f59e0b';
+        }
     }
     document.getElementById('ed-blk-text').value = b.text;
     document.getElementById('ed-blk-text').oninput = (e) => b.text = e.target.value;
+    const notesEl = document.getElementById('ed-blk-notes');
+    if (notesEl) { notesEl.value = b.notes || ''; notesEl.oninput = (e) => { b.notes = e.target.value; }; }
     window.renderVariableHelper();
     window.renderVarTable();
     window.renderChoices();
@@ -1162,15 +1340,7 @@ window.renderEditor = function() {
         `;
     }
     window.updateBlockSearch();
-
-    // Hijack the hardcoded HTML + Add Block button to become a Folder button
-    document.querySelectorAll('button').forEach(btn => {
-        if (btn.getAttribute('onclick') === 'addBlock()') {
-            btn.innerHTML = '📁 + Add Block Group';
-            btn.setAttribute('onclick', 'createBlockGroup()');
-        }
-    });
-
+    window.applyTipsState();
 };
 
 window.getLogicUI = function(prefix, i, obj, type, updateFunc) {
@@ -1198,6 +1368,8 @@ window.evaluateReqLogic = function(reqs, reqLogic, vars) {
             if (r.op === '<=' && cur > r.val) rMet = false;
             if (r.op === '==' && cur != r.val) rMet = false;
             if (r.op === '!=' && cur == r.val) rMet = false;
+            if (r.op === '>' && cur <= r.val) rMet = false;
+            if (r.op === '<' && cur >= r.val) rMet = false;
         }
         results.push(rMet);
     }
@@ -1275,7 +1447,7 @@ window.renderExtraTextEditor = function() {
     const b = story.blocks[bIdx];
     const vOpt = Object.keys(story.globalVars).map(v => `<option value="${v}">${v}</option>`).join('');
 
-    let html = `<h4>Conditional Text</h4>`;
+    let html = `<h4>Conditional Text</h4><div class="cyoa-hint">Extra paragraphs that appear only when their conditions are met. Great for reactive descriptions (e.g. show a hint only until an item is taken).</div>`;
     if (b.extraTexts) {
         b.extraTexts.forEach((extra, i) => {
             if (!extra.reqs) {
@@ -1380,8 +1552,8 @@ window.updateReq = function(cIdx, rIdx, field, val) {
     r[field] = val;
     if(field === 'var') {
         let t = story.globalVars[val]?.type;
-        if(t === 'flag') { r.op = '='; r.val = 1; }
-        else if(t === 'char' || t === 'npc') { r.op = '='; r.val = ''; }
+        if(t === 'flag') { r.op = '=='; r.val = 1; }
+        else if(t === 'char' || t === 'npc') { r.op = '=='; r.val = ''; }
         else { r.op = 'has'; r.val = 1; }
     }
     window.renderEditor();
@@ -1401,7 +1573,8 @@ window.renderChoices = function() {
         
         
         let effectsHTML = `<div class="sub-panel" style="background:#f1f5f9; padding:10px; border-radius:6px; border:1px dashed #cbd5e1;">
-            <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Give & Take Effects</label>`;
+            <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center;">Give & Take Effects</label>
+            <div class="cyoa-hint">Change a variable when this choice is picked (e.g. Give Key +1, or Take HP 5).</div>`;
         (c.effects || []).forEach((eff, eIdx) => {
             effectsHTML += `<div class="effect-row">
                 <select style="min-width:60px; max-width:120px;  border:1px solid #ddd; border-radius:4px;" onchange="updateChoiceEffect(${i}, ${eIdx}, 'type', this.value)">
@@ -1431,6 +1604,7 @@ window.renderChoices = function() {
         let branchHTML = `
         <div class="sub-panel" style="background:#f8fafc; padding:10px; border-radius:6px; border:1px dashed #cbd5e1; margin-top:10px; grid-column: span 2;">
             <label style="font-size:0.8rem; font-weight:bold; color:#475569; display:flex; align-items:center; margin-bottom:5px;">Path Destinations & Conditions</label>
+            <div class="cyoa-hint">Where this choice leads. Add a condition to lock it, or add a conditional path to send players to different blocks based on their stats or items.</div>
 
             <div class="effect-row" style="display:flex; flex-direction:column; gap:5px; margin-top:5px; background:#fff; padding:8px; border:1px solid #e2e8f0; border-radius:4px;">
                 <div style="display:flex; align-items:center; gap:5px;">
@@ -1551,23 +1725,41 @@ window.renderChoices = function() {
         branchHTML += `<button class="btn-s" style="margin-top:8px; font-size:0.8rem; width:100%;" onclick="window.addChoiceBranch(${i})">+ Add Conditional Path</button></div>`;
 
         return `<div class="card" style="border: 1px solid #ddd; background:#fafafa; margin-top:10px;">
+    <div style="display:flex; justify-content:flex-end; gap:6px; margin-bottom:6px;">
+        <button class="btn-s" title="Move this choice up" onclick="moveChoice(${i}, -1)" style="padding:2px 9px;">▲</button>
+        <button class="btn-s" title="Move this choice down" onclick="moveChoice(${i}, 1)" style="padding:2px 9px;">▼</button>
+        <button class="btn-s" title="Duplicate this choice" onclick="duplicateChoice(${i})" style="padding:2px 9px;">⧉ Duplicate</button>
+    </div>
     <input value="${c.txt}" oninput="updateChoice(${i}, 'txt', this.value)" placeholder="Choice Text" style="width:100%; margin-bottom:10px; font-weight:bold;">
     <div class="choice-grid">
         ${effectsHTML}
         ${reqsHTML}
         ${branchHTML}
 
-        <div style="grid-column: span 2; margin-top:5px;"><label style="font-size:0.8rem; font-weight:bold;">Max Uses</label>
-        <div style="display:flex; gap:15px; align-items:center;">
-            <input type="number" style="max-width:80px;" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))">
-            <label class="checkbox-line">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
-            <label class="checkbox-line">Hide if Locked <input type="checkbox" ${c.hideLocked ? 'checked' : ''} onchange="updateChoice(${i}, 'hideLocked', this.checked)"></label>
+        <details class="adv-choice">
+        <summary>Advanced options</summary>
+        <div class="cyoa-hint">Optional extras — skip these for a simple choice.</div>
+
+        <div style="margin-top:8px;"><label style="font-size:0.8rem; font-weight:bold;">Max Uses</label>
+        <div class="cyoa-hint">How many times this choice can be picked. 0 = unlimited; set 1 for one-time actions like taking an item.</div>
+        <div style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
+            <input type="number" title="How many times this choice can be clicked. 0 means unlimited." style="max-width:80px;" value="${c.maxUses || 0}" onchange="updateChoice(${i}, 'maxUses', parseInt(this.value))">
+            <label class="checkbox-line" title="Show the remaining uses on the button, e.g. (2 left)">Show Count <input type="checkbox" ${c.showUsage !== false ? 'checked' : ''} onchange="updateChoice(${i}, 'showUsage', this.checked)"></label>
+            <label class="checkbox-line" style="align-items:center;" title="What happens to this choice when its requirements aren't met">When locked:
+                <select style="margin-left:6px; width:auto; padding:4px 26px 4px 8px;" onchange="setLockedMode(${i}, this.value)">
+                    <option value="show" ${(c.lockedMode||(c.hideLocked?'hide':'show'))==='show'?'selected':''}>Show (let player try)</option>
+                    <option value="lock" ${(c.lockedMode||(c.hideLocked?'hide':'show'))==='lock'?'selected':''}>Show locked (greyed)</option>
+                    <option value="hide" ${(c.lockedMode||(c.hideLocked?'hide':'show'))==='hide'?'selected':''}>Hide completely</option>
+                </select>
+            </label>
         </div>
+        <div class="cyoa-hint"><b>Show</b>: looks normal, reveals the locked message when clicked. <b>Show locked</b>: greyed out but still shows the message. <b>Hide</b>: invisible until unlocked.</div>
         </div>
 
-        ${story.useDayCycle ? `${story.useDayCycle ? `<div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px; background:#f1f5f9; border-radius:4px; grid-column: span 2;"><label style="font-size:0.8rem; font-weight:bold; color:#334155;">Time Progression</label><div style="display:flex; gap:10px; align-items:center;"><label title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="font-size:0.8rem; cursor:help;">Add Time Phases: <input type="number" title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="min-width:60px; max-width:100px; padding:4px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.8rem; display:flex; align-items:center; gap:6px;">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>` : ''}` : ''}
+        ${story.useDayCycle ? `<div style="display:flex; flex-direction:column; gap:4px; margin-top:8px; padding:5px; background:#f1f5f9; border-radius:4px;"><label style="font-size:0.8rem; font-weight:bold; color:#334155;">Time Progression</label><div class="cyoa-hint">Advances the clock when this choice is taken. Phases: 1 Early morning, 2 Morning, 3 Noon, 4 Afternoon, 5 Evening, 6 Night.</div><div style="display:flex; gap:10px; align-items:center;"><label title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="font-size:0.8rem; cursor:help;">Add Time Phases: <input type="number" title="Time Phases: 1=Early Morning, 2=Morning, 3=Noon, 4=Afternoon, 5=Evening, 6=Night" style="min-width:60px; max-width:100px; padding:4px;" value="${c.timeAdd !== undefined ? c.timeAdd : (c.passTime===false?0:1)}" onchange="updateChoice(${i}, 'timeAdd', parseInt(this.value))"></label><label style="font-size:0.8rem; display:flex; align-items:center; gap:6px;" title="Skip straight to the next morning">Force Next Day <input type="checkbox" ${c.forceNextDay ? 'checked' : ''} onchange="updateChoice(${i}, 'forceNextDay', this.checked)"></label></div></div>` : ''}
 
-        <div class="sub-panel" style="grid-column: span 2; margin-top:5px;"><label style="font-size:0.8rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><input style="width:100%; font-size:0.85rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
+        <div class="sub-panel" style="margin-top:8px;"><label style="font-size:0.8rem; color:#64748b; font-weight:bold;">Custom Locked Message</label><div class="cyoa-hint">Shown if a player clicks this choice without meeting its requirements.</div><input title="Message shown when a locked choice is clicked" style="width:100%; font-size:0.85rem;" placeholder="Default: Locked!" value="${c.lockedMsg || ''}" oninput="updateChoice(${i}, 'lockedMsg', this.value)"></div>
+        </details>
     </div>
 
     <button class="btn-d" onclick="removeChoice(${i})" style="margin-top:10px; width:100%;">Remove Choice</button>
@@ -1675,7 +1867,7 @@ window.openInventoryModal = function() {
                     actionBtn = `<span style="font-size:0.8rem; color:#10b981; font-weight:bold;">Equipped</span>`;
                 }
             } else if (itm.type === 'consumable') {
-                actionBtn = `<button style="padding:4px 10px; font-size:0.8rem; background:#10b981; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="consumeItem('${k}')">Use</button>`;
+                actionBtn = `<button style="padding:4px 10px; font-size:0.8rem; background:#10b981; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="useRPGItem('${k}')">Use</button>`;
             }
 
             let statsText = [];
@@ -1712,10 +1904,17 @@ window.unequipItem = function(type) {
 
 window.renderStep = function() {
     if (window.clearMsg) window.clearMsg();
-    if (window.checkStatEvents()) {
+    // Guard against event chains that jump between blocks forever.
+    window._stepGuard = (window._stepGuard || 0) + 1;
+    if (window._stepGuard < 100 && window.checkStatEvents()) {
         window.renderStep();
+        window._stepGuard = 0;
         return;
     }
+    if (window._stepGuard >= 100) {
+        window.showToast('Event loop detected — stopping to avoid a freeze. Check your stat/daily events.', 'bad');
+    }
+    window._stepGuard = 0;
 
     const b = story.blocks.find(bl => bl.id === pState.bId);
     if (!b) return;
@@ -1734,7 +1933,7 @@ window.renderStep = function() {
 
     for (let k in pState.vars) {
         const v = pState.vars[k];
-        combinedText = combinedText.replace(new RegExp(`{${k}}`, 'g'), v.val);
+        combinedText = combinedText.replace(new RegExp('{' + window.escapeRegExp(k) + '}', 'g'), v.val);
     }
 
     document.getElementById('p-title').innerText = story.title;
@@ -1779,10 +1978,9 @@ window.renderStep = function() {
                         met = true;
                         break;
                     }
-                } else {
-                    met = true;
-                    break;
                 }
+                // An empty conditional path (no conditions) does NOT enable the choice on
+                // its own — this matches the click handler, which ignores empty branches.
             }
         }
 
@@ -1795,17 +1993,19 @@ window.renderStep = function() {
         const isAlreadyPersistent = c.persistFlag && pState.vars[c.persistFlag]?.val === 1;
         if (isAlreadyPersistent) met = true;
 
-        if (!met && c.hideLocked) return;
+        const lockMode = c.lockedMode || (c.hideLocked ? 'hide' : 'show');
+        if (!met && lockMode === 'hide') return;
 
         const btn = document.createElement('button');
-        btn.className = 'choice-btn';
+        btn.className = 'choice-btn' + (!met && lockMode === 'lock' ? ' locked' : '');
 
-        let label = c.txt; for(let k in pState.vars) { label = label.replace(new RegExp(`{${k}}`, 'g'), pState.vars[k].val); }
+        let label = c.txt; for(let k in pState.vars) { label = label.replace(new RegExp('{' + window.escapeRegExp(k) + '}', 'g'), pState.vars[k].val); }
         if (c.maxUses > 0 && c.showUsage !== false) label += ` (${c.maxUses - times} left)`;
         btn.innerText = label;
 
         btn.onclick = () => {
             if (!met) return window.msg(c.lockedMsg || "Locked!", true);
+            window.pushHistory();
 
             function getVarValue(varName) {
                 const v = pState.vars?.[varName];
@@ -1944,6 +2144,32 @@ window.renderStep = function() {
         };
         choiceContainer.appendChild(btn);
     });
+
+    // Ending / dead-end handling + Back button state
+    if (!choiceContainer.children.length) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-top:24px; text-align:center;';
+        if (!b.choices || b.choices.length === 0) {
+            wrap.innerHTML = '<div style="font-size:1.15rem; font-weight:bold; color:#475569; letter-spacing:1px; margin-bottom:14px;">— THE END —</div>';
+            const rb = document.createElement('button');
+            rb.className = 'btn-p'; rb.innerText = '⟳ Play Again'; rb.onclick = window.playRestart;
+            wrap.appendChild(rb);
+        } else {
+            wrap.innerHTML = '<div style="font-size:0.95rem; color:#94a3b8; font-style:italic; margin-bottom:12px;">No available options right now.</div>';
+            const bb = document.createElement('button');
+            bb.className = 'btn-s'; bb.innerText = '↩ Go Back'; bb.onclick = window.playBack;
+            if (pState.history && pState.history.length) wrap.appendChild(bb);
+        }
+        choiceContainer.appendChild(wrap);
+    }
+
+    const backBtn = document.getElementById('btn-play-back');
+    if (backBtn) {
+        const has = pState.history && pState.history.length > 0;
+        backBtn.disabled = !has;
+        backBtn.style.opacity = has ? '1' : '0.45';
+        backBtn.style.cursor = has ? 'pointer' : 'not-allowed';
+    }
 };
 
 window.addExtraTextField = function() {
@@ -1999,7 +2225,42 @@ window.removeBranchReq = function(cIdx, rIdx, reqIdx) {
     window.renderChoices();
 };
 window.updateChoice = function(idx, f, v) { story.blocks[bIdx].choices[idx][f] = v; };
-window.removeChoice = function(i) { story.blocks[bIdx].choices.splice(i, 1); window.renderChoices(); };
+window.setLockedMode = function(i, v) {
+    const c = story.blocks[bIdx].choices[i];
+    c.lockedMode = v;
+    c.hideLocked = (v === 'hide'); // keep legacy flag in sync
+    window.markDirty();
+    window.renderChoices();
+};
+window.removeChoice = function(i) { story.blocks[bIdx].choices.splice(i, 1); window.markDirty(); window.renderChoices(); };
+window.duplicateChoice = function(i) {
+    const copy = JSON.parse(JSON.stringify(story.blocks[bIdx].choices[i]));
+    copy.id = Date.now().toString() + Math.floor(Math.random() * 100000);
+    story.blocks[bIdx].choices.splice(i + 1, 0, copy);
+    window.markDirty();
+    window.renderChoices();
+};
+window.moveChoice = function(i, dir) {
+    const arr = story.blocks[bIdx].choices;
+    const j = i + dir;
+    if (j < 0 || j >= arr.length) return;
+    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    window.markDirty();
+    window.renderChoices();
+};
+window.duplicateBlock = function() {
+    const src = story.blocks[bIdx];
+    const copy = JSON.parse(JSON.stringify(src));
+    let base = src.id + '_copy', name = base, n = 2;
+    while (story.blocks.some(b => b.id === name)) { name = base + n; n++; }
+    copy.id = name;
+    (copy.choices || []).forEach(ch => { ch.id = Date.now().toString() + Math.floor(Math.random() * 100000); });
+    story.blocks.splice(bIdx + 1, 0, copy);
+    bIdx = bIdx + 1;
+    window.markDirty();
+    window.renderEditor();
+    window.showToast('Block duplicated as "' + name + '"', 'good');
+};
 
 window.renderNPCSubVars = function(charKey, v) {
     let subHTML = `<div style="background:#f8fafc; border:1px dashed #cbd5e1; margin-top:10px; padding:10px; border-radius:6px;">`;
@@ -2089,16 +2350,101 @@ window.insertVarAtCursor = function(val) {
 window.getTypeColor = function(t) { return { item: '#f59e0b', stat: '#3b82f6', flag: '#10b981', char: '#a855f7', npc: '#a855f7' }[t] || '#ccc'; };
 
 window.addTypedVar = function(type) {
-    const n = prompt("Name");
-    if(n) { story.globalVars[n.trim()] = { type, val: (type==='char'||type==='npc')?'Stranger':0, stats: (type==='char'||type==='npc')?{}:null }; window.renderEditor(); }
+    let n = window.sanitizeVarName(prompt("Name (letters, numbers, spaces, underscores)"));
+    if (!n) return;
+    if (story.globalVars[n]) { alert('A variable named "' + n + '" already exists.'); return; }
+    story.globalVars[n] = { type, val: (type==='char'||type==='npc')?'Stranger':0, stats: (type==='char'||type==='npc')?{}:null };
+    window.markDirty();
+    window.renderEditor();
 };
 
 window.addNPCStat = function(charKey) {
-    const s = prompt("Stat Name");
-    if(s) { story.globalVars[charKey].stats[s.trim()] = 0; window.renderVarTable(); }
+    let s = window.sanitizeVarName(prompt("Stat Name"));
+    if(s) { story.globalVars[charKey].stats[s] = 0; window.markDirty(); window.renderVarTable(); }
+};
+
+/* Update every reference to a variable when it is renamed. */
+window.renameVarRefs = function(oldK, newK) {
+    const tokenRe = new RegExp('{' + window.escapeRegExp(oldK) + '}', 'g');
+    const swapText = t => (typeof t === 'string') ? t.replace(tokenRe, '{' + newK + '}') : t;
+
+    (story.blocks || []).forEach(b => {
+        b.text = swapText(b.text);
+        (b.extraTexts || []).forEach(ex => {
+            ex.text = swapText(ex.text);
+            if (ex.var === oldK) ex.var = newK;
+            (ex.reqs || []).forEach(r => { if (r.var === oldK) r.var = newK; });
+        });
+        (b.choices || []).forEach(c => {
+            c.txt = swapText(c.txt);
+            if (c.persistFlag === oldK) c.persistFlag = newK;
+            if (c.promptChar === oldK) c.promptChar = newK;
+            (c.effects || []).forEach(e => { if (e.var === oldK) e.var = newK; });
+            (c.reqs || []).forEach(r => { if (r.var === oldK) r.var = newK; });
+            (c.conditionalNext || []).forEach(rule => {
+                if (rule.persistFlag === oldK) rule.persistFlag = newK;
+                if (rule.promptChar === oldK) rule.promptChar = newK;
+                (rule.reqs || []).forEach(r => { if (r.var === oldK) r.var = newK; });
+            });
+        });
+    });
+    (story.dailyEvents || []).forEach(ev => { if (ev.varName === oldK) ev.varName = newK; });
+    (story.statEvents || []).forEach(ev => {
+        if (ev.varName === oldK) ev.varName = newK;
+        if (ev.reqVar === oldK) ev.reqVar = newK;
+    });
+    // RPG item stat-modifier keys reference stat names too
+    Object.keys(story.rpgItems || {}).forEach(itemKey => {
+        const st = story.rpgItems[itemKey].stats;
+        if (st && st[oldK] !== undefined) { st[newK] = st[oldK]; delete st[oldK]; }
+    });
+    (story.rpgStats || []).forEach((s, i) => { if (s === oldK) story.rpgStats[i] = newK; });
+};
+
+/* Clear every reference to a variable when it is deleted. */
+window.removeVarRefs = function(k) {
+    const tokenRe = new RegExp('{' + window.escapeRegExp(k) + '}', 'g');
+    const stripText = t => (typeof t === 'string') ? t.replace(tokenRe, '') : t;
+
+    (story.blocks || []).forEach(b => {
+        b.text = stripText(b.text);
+        (b.extraTexts || []).forEach(ex => {
+            ex.text = stripText(ex.text);
+            if (ex.var === k) ex.var = '';
+            if (ex.reqs) ex.reqs = ex.reqs.filter(r => r.var !== k);
+        });
+        (b.choices || []).forEach(c => {
+            c.txt = stripText(c.txt);
+            if (c.persistFlag === k) c.persistFlag = '';
+            if (c.promptChar === k) c.promptChar = '';
+            if (c.effects) c.effects = c.effects.filter(e => e.var !== k);
+            if (c.reqs) c.reqs = c.reqs.filter(r => r.var !== k);
+            (c.conditionalNext || []).forEach(rule => {
+                if (rule.persistFlag === k) rule.persistFlag = '';
+                if (rule.promptChar === k) rule.promptChar = '';
+                if (rule.reqs) rule.reqs = rule.reqs.filter(r => r.var !== k);
+            });
+        });
+    });
+    (story.dailyEvents || []).forEach(ev => { if (ev.varName === k) ev.varName = ''; });
+    (story.statEvents || []).forEach(ev => {
+        if (ev.varName === k) ev.varName = '';
+        if (ev.reqVar === k) ev.reqVar = '';
+    });
+    Object.keys(story.rpgItems || {}).forEach(itemKey => {
+        const st = story.rpgItems[itemKey].stats;
+        if (st && st[k] !== undefined) delete st[k];
+    });
+    if (story.rpgStats) story.rpgStats = story.rpgStats.filter(s => s !== k);
 };
 
 window.renameVar = function(oldK, newK) {
+    newK = window.sanitizeVarName(newK);
+    if (newK && newK !== oldK && story.globalVars[newK]) {
+        alert('A variable named "' + newK + '" already exists.');
+        window.renderEditor();
+        return;
+    }
     if (newK && oldK !== newK) {
         story.globalVars[newK] = story.globalVars[oldK];
         story.varConfig[newK] = story.varConfig[oldK];
@@ -2108,21 +2454,67 @@ window.renameVar = function(oldK, newK) {
             story.rpgItems[newK] = story.rpgItems[oldK];
             delete story.rpgItems[oldK];
         }
+        window.renameVarRefs(oldK, newK);
+        window.markDirty();
         window.renderEditor();
     }
 };
 
 window.deleteVar = function(k) {
-    if(confirm(`Delete ${k}?`)) { 
-        delete story.globalVars[k]; 
-        delete story.varConfig[k]; 
+    if(confirm(`Delete "${k}" and remove it from every choice, condition, event and text that uses it?`)) {
+        delete story.globalVars[k];
+        delete story.varConfig[k];
         if(story.rpgItems) delete story.rpgItems[k];
-        window.renderEditor(); 
+        window.removeVarRefs(k);
+        window.markDirty();
+        window.renderEditor();
     }
 };
 
-window.renameNPCStat = function(cK, oldS, newS) { story.globalVars[cK].stats[newS] = story.globalVars[cK].stats[oldS]; delete story.globalVars[cK].stats[oldS]; };
+window.renameNPCStat = function(cK, oldS, newS) { newS = window.sanitizeVarName(newS) || oldS; story.globalVars[cK].stats[newS] = story.globalVars[cK].stats[oldS]; if (newS !== oldS) delete story.globalVars[cK].stats[oldS]; };
 window.deleteNPCStat = function(cK, sK) { delete story.globalVars[cK].stats[sK]; window.renderVarTable(); };
+
+/* List every place a variable is referenced. */
+window.findVarUsage = function(k) {
+    const hits = [];
+    const tok = '{' + k + '}';
+    (story.blocks || []).forEach(b => {
+        if (typeof b.text === 'string' && b.text.includes(tok)) hits.push('Block "' + b.id + '" — narrative text');
+        (b.extraTexts || []).forEach((ex, ei) => {
+            if (ex.var === k || (ex.reqs || []).some(r => r.var === k)) hits.push('Block "' + b.id + '" — conditional text #' + (ei + 1) + ' condition');
+            if (typeof ex.text === 'string' && ex.text.includes(tok)) hits.push('Block "' + b.id + '" — conditional text #' + (ei + 1) + ' body');
+        });
+        (b.choices || []).forEach(c => {
+            const label = c.txt || '(untitled)';
+            if ((c.effects || []).some(e => e.var === k)) hits.push('Block "' + b.id + '" › "' + label + '" — effect');
+            if ((c.reqs || []).some(r => r.var === k)) hits.push('Block "' + b.id + '" › "' + label + '" — requirement');
+            if (c.persistFlag === k) hits.push('Block "' + b.id + '" › "' + label + '" — set flag');
+            if (c.promptChar === k) hits.push('Block "' + b.id + '" › "' + label + '" — rename prompt');
+            (c.conditionalNext || []).forEach(rule => { if ((rule.reqs || []).some(r => r.var === k)) hits.push('Block "' + b.id + '" › "' + label + '" — conditional path'); });
+            if (typeof c.txt === 'string' && c.txt.includes(tok)) hits.push('Block "' + b.id + '" › "' + label + '" — label text');
+        });
+    });
+    (story.dailyEvents || []).forEach((ev, i) => { if (ev.varName === k) hits.push('Daily event #' + (i + 1)); });
+    (story.statEvents || []).forEach((ev, i) => { if (ev.varName === k || ev.reqVar === k) hits.push('Stat event #' + (i + 1)); });
+    Object.keys(story.rpgItems || {}).forEach(ik => { const st = story.rpgItems[ik].stats; if (st && st[k] !== undefined) hits.push('RPG item "' + ik + '" — stat modifier'); });
+
+    let m = document.getElementById('usage-modal');
+    if (!m) {
+        m = document.createElement('div');
+        m.id = 'usage-modal';
+        m.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10001; display:flex; justify-content:center; align-items:center;";
+        document.body.appendChild(m);
+    }
+    const body = hits.length
+        ? hits.map(h => '<div style="padding:7px 10px; margin-bottom:5px; background:#f8fafc; border-left:3px solid #6366f1; border-radius:4px; font-size:0.85rem;">' + window.escapeHtml(h) + '</div>').join('')
+        : '<div style="padding:16px; text-align:center; color:#64748b;">Not used anywhere yet.</div>';
+    m.innerHTML = '<div style="background:white; padding:20px; border-radius:10px; width:90%; max-width:520px; max-height:80vh; overflow-y:auto; box-shadow:0 10px 30px rgba(0,0,0,0.4);">'
+        + '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:10px; margin-bottom:12px;">'
+        + '<h3 style="margin:0; color:#1e293b;">🔍 Uses of "' + window.escapeHtml(k) + '" (' + hits.length + ')</h3>'
+        + '<button class="btn-s" style="padding:4px 12px;" onclick="document.getElementById(\'usage-modal\').remove()">Close</button></div>'
+        + body + '</div>';
+    m.style.display = 'flex';
+};
 window.toggleVarVis = function(k, v) { story.varConfig[k] = v; };
 
 window.openEditor = function() {
@@ -2146,18 +2538,19 @@ window.initNewStory = function(isRPG) {
     const t = document.getElementById('ns-title').value.trim() || 'New Game';
     document.getElementById('new-story-modal').remove();
 
-    story = { 
-        id: null, 
-        title: t, 
-        useDayCycle: false, 
+    story = {
+        id: null,
+        title: t,
+        startBlock: 'starting_room',
+        useDayCycle: false,
         isRPG: isRPG,
-        dailyEvents: [], 
+        dailyEvents: [],
         rpgStats: isRPG ? ['HP', 'MaxHP', 'Atk', 'Def', 'Dex', 'Agi'] : [],
         rpgItems: {},
         blockGroups: ['Ungrouped'],
-        globalVars: {}, 
-        varConfig: {}, 
-        blocks: [{ id: 'starting_room', text: 'Start here...', group: 'Ungrouped', choices: [], extraTexts: [] }] 
+        globalVars: {},
+        varConfig: {},
+        blocks: [{ id: 'starting_room', text: 'Start here...', group: 'Ungrouped', choices: [], extraTexts: [] }]
     };
 
     if (isRPG) {
@@ -2169,6 +2562,7 @@ window.initNewStory = function(isRPG) {
 
     bIdx = 0;
     window.renderEditor();
+    window.clearDirty();
     window.showScreen('edit-screen');
 };
 
@@ -2178,27 +2572,64 @@ window.loadEditor = async function(i) {
     window.undoStack = [];
     window.redoStack = [];
     window.renderEditor();
+    window.clearDirty();
     window.showScreen('edit-screen');
 };
 
 window.setActiveBlock = function(i) { bIdx = i; window.renderEditor(); };
 window.syncBlockId = function(newName) {
     const old = story.blocks[bIdx].id;
+    newName = String(newName || '').replace(/["'<>]/g, '').trim();
+    if (!newName) { window.renderEditor(); return; }
     story.blocks[bIdx].id = newName;
-    story.blocks.forEach(blk => blk.choices.forEach(ch => { if (ch.next === old) ch.next = newName; }));
+    // Update every reference to the old block id so nothing points at a ghost.
+    story.blocks.forEach(blk => {
+        (blk.choices || []).forEach(ch => {
+            if (ch.next === old) ch.next = newName;
+            (ch.conditionalNext || []).forEach(rule => { if (rule.next === old) rule.next = newName; });
+        });
+    });
+    (story.dailyEvents || []).forEach(ev => { if (ev.blockName === old) ev.blockName = newName; });
+    (story.statEvents || []).forEach(ev => { if (ev.blockName === old) ev.blockName = newName; });
+    if (story.startBlock === old) story.startBlock = newName;
+    window.markDirty();
     window.renderEditor();
 };
 
-window.addBlock = function() {
-    story.blocks.push({ id: 'block_' + Date.now(), text: '', group: story.blocks[bIdx] ? story.blocks[bIdx].group : 'Main', choices: [], extraTexts: [] });
+window.setStartBlock = function() {
+    if (!story || !story.blocks[bIdx]) return;
+    story.startBlock = story.blocks[bIdx].id;
+    window.markDirty();
+    window.showToast('Start block set to "' + story.blocks[bIdx].id + '"', 'good');
+    window.renderEditor();
+};
+
+window.addBlock = function(grp) {
+    const group = grp || (story.blocks[bIdx] ? story.blocks[bIdx].group : 'Ungrouped');
+    story.blocks.push({ id: 'block_' + Date.now(), text: '', group: group, choices: [], extraTexts: [] });
     bIdx = story.blocks.length - 1;
+    window.markDirty();
     window.renderEditor();
 };
 
 window.removeBlock = function(i) {
+    if (story.blocks.length <= 1) { alert("You can't delete the last block."); return; }
     if(confirm("Delete block?")) {
+        const removedId = story.blocks[i].id;
         story.blocks.splice(i, 1);
+        if (bIdx > i) bIdx--;
+        // Clear references to the deleted block so choices/events don't point at a ghost.
+        story.blocks.forEach(blk => {
+            (blk.choices || []).forEach(ch => {
+                if (ch.next === removedId) ch.next = '';
+                (ch.conditionalNext || []).forEach(rule => { if (rule.next === removedId) rule.next = ''; });
+            });
+        });
+        (story.dailyEvents || []).forEach(ev => { if (ev.blockName === removedId) ev.blockName = ''; });
+        (story.statEvents || []).forEach(ev => { if (ev.blockName === removedId) ev.blockName = ''; });
+        if (story.startBlock === removedId) story.startBlock = '';
         if (bIdx >= story.blocks.length) bIdx = story.blocks.length - 1;
+        window.markDirty();
         window.renderEditor();
     }
 };
@@ -2206,12 +2637,15 @@ window.removeBlock = function(i) {
 window.saveStory = async function() {
     await saveStoryToDB(story);
     await refreshLibrary();
+    window.clearDirty();
     window.showToast('Story saved successfully.', 'good');
 };
 
 
 window.parseMarkdown = function(text) {
-    let html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    let html = String(text == null ? '' : text)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
     html = html.replace(/\[color:(.*?)\](.*?)\[\/color\]/g, '<span style="color:$1">$2</span>');
     html = html.replace(/\n/g, '<br>');
@@ -2251,19 +2685,9 @@ window.exitPlay = function() {
 };
 
 window.playtestCurrentBlock = async function() {
-    await saveStoryToDB(story);
-    story = await loadStoryFromDB(story.id);
-    pState = {
-        bId: story.blocks[bIdx] ? story.blocks[bIdx].id : story.blocks[0].id,
-        vars: JSON.parse(JSON.stringify(story.globalVars)),
-        config: story.varConfig,
-        usage: {},
-        slot: 0,
-        firedEvents: {},
-        cooldowns: {},
-        usesLeft: {},
-        equipped: { weapon: null, armor: null }
-    };
+    // Playtest from the in-memory story WITHOUT persisting to the database,
+    // so hitting "Test Block" never silently saves work-in-progress.
+    pState = window.createPlayState({ bId: story.blocks[bIdx] ? story.blocks[bIdx].id : story.blocks[0].id });
     window.isPlaytesting = true;
 
     const exitBtn = document.getElementById('btn-play-exit');
@@ -2334,6 +2758,69 @@ window.exportStory = function() {
     a.click();
 };
 
+/* Publish the current story as a single self-contained, playable .html file. */
+window.publishStory = function() {
+    if (!story) return;
+    if (!window.__PLAY_JS__ || !window.__PLAY_CSS__) {
+        alert('Publish assets not loaded. Make sure publish-assets.js sits next to index.html.');
+        return;
+    }
+    const safeTitle = window.escapeHtml(story.title || 'Adventure');
+    const dataJson = JSON.stringify(story)
+        .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+
+    const html =
+'<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n' +
+'<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+'<title>' + safeTitle + '</title>\n<style>\n' + window.__PLAY_CSS__ + '\n</style>\n</head>\n<body>\n' +
+'<div id="pub-wrap">\n' +
+'  <div id="pub-header">\n' +
+'    <div class="pub-title" id="p-title"></div>\n' +
+'    <div class="pub-controls">\n' +
+'      <button id="btn-back" onclick="pubBack()">↩ Back</button>\n' +
+'      <button id="btn-restart" onclick="pubRestart()">⟳ Restart</button>\n' +
+'    </div>\n  </div>\n' +
+'  <div id="game-msg"></div>\n' +
+'  <div class="pub-grid">\n' +
+'    <div class="pub-card"><p id="p-text"></p><div id="p-choices"></div></div>\n' +
+'    <div class="pub-side"><h3>🎒 Backpack</h3><div id="p-inventory"></div></div>\n' +
+'  </div>\n' +
+'  <div class="pub-credit">Made with CYOA.C</div>\n' +
+'</div>\n' +
+'<div id="start-overlay" style="display:none;">\n' +
+'  <div class="pub-start-card">\n' +
+'    <h1>' + safeTitle + '</h1>\n' +
+'    <p>An interactive adventure</p>\n' +
+'    <button class="pub-btn-new" onclick="pubNew()">New Game</button>\n' +
+'    <button id="btn-continue" class="pub-btn-cont" style="display:none;" onclick="pubContinue()">Continue</button>\n' +
+'  </div>\n</div>\n' +
+'<script>window.CYOA_STORY = ' + dataJson + ';<\/script>\n' +
+'<script>\n' + window.__PLAY_JS__ + '\n<\/script>\n' +
+'</body>\n</html>';
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (story.title || 'adventure').replace(/[^A-Za-z0-9_-]+/g, '_') + '.html';
+    a.click();
+    window.showToast('Published! Share the downloaded .html file.', 'good');
+};
+
+/* Back up the whole library as a single JSON array (restore via Import JSON). */
+window.exportAllStories = async function() {
+    if (!storiesList || storiesList.length === 0) { alert('No stories to back up yet.'); return; }
+    const all = [];
+    for (const s of storiesList) {
+        all.push(await loadStoryFromDB(s.Story_ID));
+    }
+    const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'CYOA_library_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    window.showToast('Backed up ' + all.length + ' ' + (all.length === 1 ? 'story' : 'stories') + '.', 'good');
+};
+
 window.importStory = async function(event) {
     window.undoStack = [];
     window.redoStack = [];
@@ -2377,16 +2864,18 @@ window.pmBackToMain = function() { document.getElementById('pm-main-view').style
 
 window.pmNewGame = async function() {
     const saves = await getStoryUserSaves();
-    if (saves.length >= 3) {
-        alert("Maximum save slots (3) reached. Please delete an old save to start a new game.");
+    if (saves.length >= window.MAX_SAVE_SLOTS) {
+        alert("Maximum save slots (" + window.MAX_SAVE_SLOTS + ") reached. Please delete an old save to start a new game.");
         window.pmShowContinue();
         return;
     }
     const usedSlots = saves.map(s => s.SlotNumber || 1);
     let slotNum = 1;
     while(usedSlots.includes(slotNum)) slotNum++;
-    const entry = story.blocks.find(b => b.id.toLowerCase().includes('starting'));
-    pState = { bId: entry ? entry.id : story.blocks[0].id, vars: JSON.parse(JSON.stringify(story.globalVars)), config: story.varConfig, usage: {}, slot: slotNum, equipped: {weapon: null, armor: null} };
+    let entry = null;
+    if (story.startBlock) entry = story.blocks.find(b => b.id === story.startBlock);
+    if (!entry) entry = story.blocks.find(b => b.id.toLowerCase().includes('starting'));
+    pState = window.createPlayState({ bId: entry ? entry.id : story.blocks[0].id, slot: slotNum });
     window.pmClose();
     window.isPlaytesting = false;
 
@@ -2404,7 +2893,7 @@ window.pmNewGame = async function() {
 window.pmShowContinue = async function() {
     const saves = await getStoryUserSaves();
     let html = '';
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= window.MAX_SAVE_SLOTS; i++) {
         const save = saves.find(s => (s.SlotNumber || 1) === i);
         if (save) {
             html += `<div class="slot-row"><div style="flex:1;"><div style="font-weight:bold; font-size:0.9rem; color:var(--p);">Slot ${i}</div><div style="font-size:0.85rem; color:#475569; font-weight:600;">Block: ${save.CurrentBlock}</div><div style="font-size:0.8rem; color:#94a3b8;">${save.Timestamp || 'Legacy Save'}</div></div><div style="display:flex; gap:8px;"><button class="btn-p" style="padding:6px 12px; font-size:0.8rem; border-radius:4px;" onclick="pmLoadGame(${save.Save_ID}, ${i})">Load</button><button class="btn-d" style="padding:6px 10px; margin:0; font-size:0.8rem; border-radius:4px; width:auto;" onclick="pmDeleteSave(${save.Save_ID})">🗑</button></div></div>`;
@@ -2421,7 +2910,16 @@ window.pmLoadGame = async function(saveId, slotNum) {
     const db = await openDB();
     const save = await idbReq(db.transaction('GameSaves', 'readonly').objectStore('GameSaves').get(saveId));
     if (!save) return;
-    pState = { bId: save.CurrentBlock, vars: JSON.parse(save.VariablesJSON), usage: JSON.parse(save.UsageJSON || '{}'), config: story.varConfig, slot: slotNum, equipped: JSON.parse(save.EquippedJSON || '{"weapon":null,"armor":null}'), firedEvents: JSON.parse(save.FiredEventsJSON || '{}'), cooldowns: JSON.parse(save.CooldownsJSON || '{}'), usesLeft: JSON.parse(save.UsesLeftJSON || '{}') };
+    pState = window.createPlayState({
+        bId: save.CurrentBlock,
+        vars: JSON.parse(save.VariablesJSON),
+        usage: JSON.parse(save.UsageJSON || '{}'),
+        slot: slotNum,
+        equipped: JSON.parse(save.EquippedJSON || '{"weapon":null,"armor":null}'),
+        firedEvents: JSON.parse(save.FiredEventsJSON || '{}'),
+        cooldowns: JSON.parse(save.CooldownsJSON || '{}'),
+        usesLeft: JSON.parse(save.UsesLeftJSON || '{}')
+    });
     window.pmClose();
     window.isPlaytesting = false;
 
@@ -2448,22 +2946,20 @@ window.saveGameState = async function() {
     if (!story || !story.id) return;
     try {
         const db = await openDB();
-        const tx = db.transaction('GameSaves', 'readwrite');
-        const store = tx.objectStore('GameSaves');
-        const saves = await idbReq(store.index('Story_ID').getAll(story.id));
+        const saves = await idbReq(db.transaction('GameSaves', 'readonly').objectStore('GameSaves').index('Story_ID').getAll(story.id));
         const userSaves = saves.filter(s => s.User_ID === currentUser.User_ID);
 
-        let slotInfo = [1, 2, 3].map(i => {
+        let slotInfo = Array.from({ length: window.MAX_SAVE_SLOTS }, (_, k) => k + 1).map(i => {
             let s = userSaves.find(x => (x.SlotNumber || 1) === i);
             return `Slot ${i}: ${s ? s.CurrentBlock + ' (' + (s.Timestamp || 'Legacy') + ')' : 'Empty'}`;
         }).join('\n');
 
-        let slotInput = prompt("Enter slot to save to (1, 2, or 3):\n\n" + slotInfo, pState.slot || 1);
+        let slotInput = prompt("Enter slot to save to (1-" + window.MAX_SAVE_SLOTS + "):\n\n" + slotInfo, pState.slot || 1);
         if (slotInput === null) return;
 
         let slotNum = parseInt(slotInput);
-        if (isNaN(slotNum) || slotNum < 1 || slotNum > 3) {
-            alert("Invalid slot number. Must be 1, 2, or 3.");
+        if (isNaN(slotNum) || slotNum < 1 || slotNum > window.MAX_SAVE_SLOTS) {
+            alert("Invalid slot number. Must be between 1 and " + window.MAX_SAVE_SLOTS + ".");
             return;
         }
 
@@ -2490,7 +2986,9 @@ window.saveGameState = async function() {
         };
 
         if (existing) saveObj.Save_ID = existing.Save_ID;
-        await idbReq(store.put(saveObj));
+        // Fresh transaction for the write: the prompt/confirm above yields the event
+        // loop, which would auto-commit an earlier transaction.
+        await idbReq(db.transaction('GameSaves', 'readwrite').objectStore('GameSaves').put(saveObj));
 
         const msg = document.getElementById('save-msg');
         if (msg) {
@@ -2859,4 +3357,103 @@ window.showStoryboard = function() {
             content.innerHTML = `<div style="color:#ef4444; background:#fee2e2; padding:15px; border-radius:6px; font-family:monospace; margin:20px;">Error rendering flowchart. Story might be too complex or contain invalid characters.<br><br>${err.message}</div>`;
         });
     });
-};;
+};
+
+/* =========================================================
+   STORY VALIDATOR (added)
+   Flags broken links, unreachable blocks, and soft dead-ends.
+========================================================= */
+window.validateStory = function() {
+    if (!story || !story.blocks) return;
+
+    const ids = new Set(story.blocks.map(b => b.id));
+    const errors = [];   // definitely broken
+    const warnings = []; // worth a look
+
+    // 1. Dangling references (choices / conditional paths / events pointing nowhere)
+    story.blocks.forEach(b => {
+        (b.choices || []).forEach(c => {
+            if (c.next && !ids.has(c.next)) {
+                errors.push(`Block "${b.id}": choice "${c.txt || '(untitled)'}" points to missing block "${c.next}".`);
+            }
+            (c.conditionalNext || []).forEach(rule => {
+                if (rule.next && !ids.has(rule.next)) {
+                    errors.push(`Block "${b.id}": a conditional path on "${c.txt || '(untitled)'}" points to missing block "${rule.next}".`);
+                }
+            });
+        });
+    });
+    (story.dailyEvents || []).forEach((ev, i) => {
+        if (ev.type === 'block' && ev.blockName && !ids.has(ev.blockName)) {
+            errors.push(`Daily event #${i + 1} jumps to missing block "${ev.blockName}".`);
+        }
+    });
+    (story.statEvents || []).forEach((ev, i) => {
+        if (ev.type === 'block' && ev.blockName && !ids.has(ev.blockName)) {
+            errors.push(`Stat event #${i + 1} jumps to missing block "${ev.blockName}".`);
+        }
+    });
+
+    // Determine the start block
+    let startId = null;
+    if (story.startBlock && ids.has(story.startBlock)) startId = story.startBlock;
+    if (!startId) { const g = story.blocks.find(b => b.id.toLowerCase().includes('starting')); if (g) startId = g.id; }
+    if (!startId && story.blocks[0]) startId = story.blocks[0].id;
+    if (!story.startBlock) warnings.push('No explicit start block set (using a fallback). Use "⭐ Set as Start" to lock it in.');
+
+    // 2. Reachability from the start block
+    const reachable = new Set();
+    const queue = startId ? [startId] : [];
+    // Event-target blocks are also valid entry points; seed them as BFS roots so
+    // anything reachable only through an event isn't flagged as unreachable.
+    (story.dailyEvents || []).concat(story.statEvents || []).forEach(ev => {
+        if (ev.type === 'block' && ev.blockName && ids.has(ev.blockName)) queue.push(ev.blockName);
+    });
+    while (queue.length) {
+        const cur = queue.shift();
+        if (reachable.has(cur)) continue;
+        reachable.add(cur);
+        const blk = story.blocks.find(b => b.id === cur);
+        if (!blk) continue;
+        (blk.choices || []).forEach(c => {
+            if (c.next && !reachable.has(c.next)) queue.push(c.next);
+            (c.conditionalNext || []).forEach(rule => { if (rule.next && !reachable.has(rule.next)) queue.push(rule.next); });
+        });
+    }
+    story.blocks.forEach(b => {
+        if (!reachable.has(b.id)) warnings.push(`Block "${b.id}" is unreachable (nothing links to it).`);
+    });
+
+    // 3. Soft dead-ends: has choices, but none actually navigate anywhere
+    story.blocks.forEach(b => {
+        const choices = b.choices || [];
+        if (choices.length === 0) return; // intentional ending
+        const anyNav = choices.some(c => c.next || (c.conditionalNext || []).some(r => r.next));
+        if (!anyNav) warnings.push(`Block "${b.id}" has choices but none lead anywhere (soft dead-end).`);
+    });
+
+    // Render results in a modal
+    let m = document.getElementById('validate-modal');
+    if (!m) {
+        m = document.createElement('div');
+        m.id = 'validate-modal';
+        m.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10001; display:flex; justify-content:center; align-items:center;";
+        document.body.appendChild(m);
+    }
+    const item = (t, color) => `<div style="padding:8px 10px; margin-bottom:6px; background:#f8fafc; border-left:4px solid ${color}; border-radius:4px; font-size:0.85rem; color:#1e293b;">${window.escapeHtml(t)}</div>`;
+    let body = '';
+    if (errors.length === 0 && warnings.length === 0) {
+        body = `<div style="padding:20px; text-align:center; color:#16a34a; font-weight:bold;">✅ No problems found. Your story looks well-connected!</div>`;
+    } else {
+        if (errors.length) body += `<h4 style="margin:10px 0 6px; color:#b91c1c;">Errors (${errors.length})</h4>` + errors.map(e => item(e, '#ef4444')).join('');
+        if (warnings.length) body += `<h4 style="margin:14px 0 6px; color:#b45309;">Warnings (${warnings.length})</h4>` + warnings.map(w => item(w, '#f59e0b')).join('');
+    }
+    m.innerHTML = `<div style="background:white; padding:20px; border-radius:10px; width:90%; max-width:520px; max-height:80vh; overflow-y:auto; box-shadow:0 10px 30px rgba(0,0,0,0.4);">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:10px; margin-bottom:12px;">
+            <h3 style="margin:0; color:#1e293b;">✅ Story Validation</h3>
+            <button class="btn-s" style="padding:4px 12px;" onclick="document.getElementById('validate-modal').remove()">Close</button>
+        </div>
+        ${body}
+    </div>`;
+    m.style.display = 'flex';
+};

@@ -1,6 +1,7 @@
 {
   "id": 23,
   "title": "Room Game",
+  "startBlock": "starting room",
   "useDayCycle": false,
   "isRPG": false,
   "rpgStats": [],
@@ -465,12 +466,12 @@
             {
               "var": "Strength",
               "op": "<=",
-              "val": "6",
+              "val": 6,
               "next": "NotThatGuy",
               "reqs": [
                 {
                   "var": "Strength",
-                  "op": ">=",
+                  "op": "<=",
                   "val": 6
                 }
               ]

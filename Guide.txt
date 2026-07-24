@@ -1,0 +1,283 @@
+# CYOA.C — Create Your Own Adventure Creator
+
+A single-page, browser-based tool for building and playing branching interactive stories. It runs entirely in your browser with no server: everything (accounts, stories, and save games) is stored locally using **IndexedDB**. It scales from simple "choose a door" text adventures up to full RPGs with stats, items, equipment, combat, and a day/night cycle.
+
+> For a friendlier, tutorial-style walkthrough aimed at brand-new users, see `GUIDE.md`.
+
+---
+
+## Contents
+
+1. [Quick Start](#quick-start)
+2. [The Three Screens](#the-three-screens)
+3. [Accounts & Login](#accounts--login)
+4. [The Dashboard (Your Library)](#the-dashboard-your-library)
+5. [The Editor](#the-editor)
+   - [Blocks & Folders](#blocks--folders)
+   - [The Start Block](#the-start-block)
+   - [Narrative Text & Formatting](#narrative-text--formatting)
+   - [Conditional Text](#conditional-text)
+   - [Variables](#variables-the-4-types)
+   - [Choices](#choices)
+   - [Conditional Paths (branching)](#conditional-paths-branching)
+   - [Day/Night Cycle & Events](#daynight-cycle--events)
+   - [The RPG Engine](#the-rpg-engine)
+   - [Author notes](#author-notes)
+   - [Toolbar: Duplicate, Storyboard, Validate, Playtest](#toolbar-duplicate-storyboard-validate-playtest-undoredo)
+6. [Playing a Story](#playing-a-story)
+7. [Import, Export, Backup & Publish](#import-export-backup--publish)
+8. [Full Worked Example: "Room Game"](#full-worked-example-room-game)
+
+---
+
+## Quick Start
+
+1. Open `index.html` in a browser. Keep all the app files in the same folder: `index.html`, `script.js`, `style.css`, and `publish-assets.js` (needed for the Publish feature).
+2. Create an account (username, password, security question).
+3. On the dashboard, click **+ Create New Story** or **📥 Import JSON** (load the included `Room_Game.json` to see a finished example).
+4. Build your story in the editor, click **Save**, then go back to the dashboard and hit **▶ Play**.
+
+> Because all data lives in your browser's local storage, stories are tied to that browser on that machine. Use **Export** to back up or move a story.
+
+---
+
+## The Three Screens
+
+The whole app is one HTML page that swaps between three "screens":
+
+| Screen | Purpose |
+|--------|---------|
+| **Auth** | Sign in, sign up, or recover a password. |
+| **Dashboard** | Your library of stories: play, edit, duplicate, delete, import. |
+| **Editor** | Build the story: blocks, variables, choices, events. |
+| **Play** | The runtime that actually plays a story, with a backpack/stats sidebar. |
+
+---
+
+## Accounts & Login
+
+- **Sign Up** requires a username, password, and a **security question + answer** (used for password recovery). Answers are stored lowercased and compared case-insensitively.
+- **Sign In** checks your username and password.
+- **Forgot Password?** looks up your account by username, shows your security question, and lets you set a new password after answering correctly.
+- Your session persists via `localStorage`, so you stay logged in until you click **Logout**.
+
+> Security note: passwords are now **hashed (SHA-256)** before being stored, never saved in plaintext. Accounts created before this change are upgraded automatically the next time you sign in successfully — nothing to do on your end. Everything still lives locally in your browser, so this remains a hobby-grade tool; don't reuse a high-value password here.
+
+---
+
+## The Dashboard (Your Library)
+
+Each story appears as a card with four actions:
+
+- **▶ Play** — opens the play menu (New Game / Continue).
+- **✏ Edit** — opens the story in the editor.
+- **📋 Duplicate** — makes a full copy, titled `"<name> (Copy)"`.
+- **🗑 Delete** — permanently removes the story and everything linked to it (blocks, choices, variables, **and its save games** — no orphaned data left behind).
+
+Two buttons at the bottom: **+ Create New Story** and **📥 Import JSON**.
+
+When you create a new story you are asked whether it needs the **RPG Engine** (Yes = full RPG with stats/items/combat; No = a simpler "visual novel" style branching story). You can toggle it later, but this sets sensible defaults up front.
+
+---
+
+## The Editor
+
+The editor has a left **sidebar** with three tabs — **Blocks**, **Variables**, **Events** — and a main area for editing the currently selected block. A top bar holds the story title, **Export**, and **Save**.
+
+> ⚠️ Saving is manual — click **Save** to persist your work. The app now **warns you** if you try to leave the editor or close the tab with unsaved changes, so you won't lose edits by accident.
+
+### Blocks & Folders
+
+A **block** is one screen of story: an ID (name), narrative text, and a list of choices. The player moves from block to block by clicking choices.
+
+- **Current Block Name (ID)** — the block's unique name (e.g. `starting room`, `Office`). Renaming a block now automatically updates **every** reference to it: default choice destinations, conditional-path destinations, daily/stat event jumps, and the start block. Quote/angle-bracket characters are stripped from block names to keep the UI safe.
+- **Adding blocks & folders** — the Blocks tab has two buttons: **+ Add Block** (creates a new block) and **📁 New Folder** (creates a folder, also called a "block group"). Each folder header also has its own **+ Block** button that adds a block directly into that folder. Folders show up as subgraphs in the storyboard.
+- Deleting a block clears any references pointing at it (so nothing links to a "ghost" block), and you can't delete the last remaining block.
+
+### The Start Block
+
+Use the **⭐ Set as Start** button (editor toolbar) to mark the currently open block as where **New Game** begins. The button shows **⭐ Start Block** (green) when you're viewing the current start block. New stories default their start to the initial block. If no start block is set, the app falls back to a block whose name contains "starting", then to the first block — but setting it explicitly is recommended.
+
+### Narrative Text & Formatting
+
+The **Narrative Text** box is the main body shown to the player. It supports:
+
+- `**bold**` → **bold**
+- `*italic*` → *italic*
+- `[color:red]text[/color]` → colored text (any CSS color)
+- Line breaks are preserved.
+- `{VariableName}` → injects the live value of a variable at play time. Use **➕ Insert Variable** to pick one from a searchable list. Variable substitution is now regex-safe, so names with unusual characters won't break rendering.
+
+Example:
+```
+Here are your Stats!
+
+Strength : {Strength}
+Stupidity: {Stupidity}
+
+**Good Game!**
+```
+
+### Conditional Text
+
+Below the main text you can add **Conditional Text** blocks — extra paragraphs that only appear if certain variable conditions are met. Each conditional text block has:
+
+- One or more **Conditions** (variable + operator + value).
+- A **logic mode** (ALL/AND or ANY/OR) when there is more than one condition.
+- The text to append if the conditions pass.
+
+Example (from Room Game): show *"A small shiny item catches your attention"* only when the flag `KeyTaken` is `Off` (== 0), so the hint disappears after the player grabs the key.
+
+### Variables (the 4 types)
+
+Variables are the memory of your story. Open the **Variables** tab and pick a view: **Stats, Items, Flags, NPCs**.
+
+| Type | Stored as | Use it for | Example |
+|------|-----------|------------|---------|
+| **Stat** | number | Numeric attributes | `Strength`, `HP`, `Stupidity` |
+| **Item** | number (count) | Inventory quantities | `Key` (0 or 1), `Potion` (x3) |
+| **Flag** | On/Off (1/0) | Yes/no state | `Unlocked`, `KeyTaken` |
+| **NPC** | text | Names/labels that can change | `NyarMar` (starts as "Stranger") |
+
+For each variable you set a **default value** and can toggle **HUD** — HUD variables appear in the player's sidebar during play. NPC variables can also carry their own sub-stats.
+
+Add one with **+ Add Custom [TYPE]**. Names are restricted to letters, numbers, spaces, and underscores, and duplicates are rejected. Two buttons sit on each variable card:
+
+- **🔍 Find usage** — lists every block, choice, condition, event, and text mention that references the variable, so you always know what a change will affect.
+- **✕ Delete** — removes the variable **and** cleans up every reference to it.
+
+Renaming a variable also propagates everywhere it's used (effects, requirements, conditional paths, events, `{var}` text tokens, and RPG stat modifiers), so you can refactor safely.
+
+### Choices
+
+Choices are the buttons the player clicks. Each choice card has **▲ / ▼** to reorder it (choice order is the order players see) and **⧉ Duplicate** to copy it. The rarely-used settings (Max Uses, Show Count, the When-locked behavior, Time, Locked Message) live under a collapsible **⚙️ Advanced options** so simple choices stay simple. Each choice has:
+
+- **Choice Text** — the button label (supports `{Variable}` injection).
+- **Give & Take Effects** — increase (Give) or decrease (Take) a variable when the choice is picked. Give/Take also pop a little toast (`+2 Strength`). Take never goes below 0.
+- **Default Path → Go to** — which block to jump to. "Stay here…" reloads the same block (useful for actions that only change stats).
+- **Requirements (conditions)** — the choice is only usable if these pass. Operators depend on the variable type:
+  - Stats/Items: `Has`, `≥`, `≤`, `==`, `!=`, `>`, `<`
+  - Flags: `Is On` / `Is Off`
+  - NPCs: `Is` / `Is Not`
+  - Multiple conditions combine with **AND** or **OR**.
+- **Set Flag** — flips a chosen flag to On when the choice is taken (a one-time "persist" latch; once set, the choice stays unlocked).
+- **Rename** — prompts the player to type a new value for an NPC variable (e.g. name yourself).
+- **Max Uses** — limit how many times a choice can be clicked, with an optional **Show Count** ("2 left").
+- **When locked** — what happens if the player hasn't met the requirements: **Show** (looks normal, reveals the locked message when clicked, so players can try it), **Show locked** (visible but greyed out, still shows the message), or **Hide completely** (invisible until unlocked).
+- **Custom Locked Message** — what to show if the player clicks a choice whose requirements aren't met (instead of the default "Locked!").
+- **Time Progression** (only when Day/Night is on) — how many time phases the choice advances, and an optional **Force Next Day**.
+
+### Conditional Paths (branching)
+
+Beyond the default destination, a single choice can send the player to **different blocks depending on the game state**. Under **Path Destinations & Conditions**, add **+ Add Conditional Path** ("If / Else If" rules), each with its own conditions and its own target block.
+
+How it resolves at play time: if the **default path's** requirements are met, the default destination is used. Otherwise the conditional paths are checked in order and the **first matching** one wins. This is how you build things like "attack succeeds if strong enough, otherwise you get bodied."
+
+> An **unconfigured** conditional path (no conditions yet) no longer force-enables the choice — it's ignored until you give it a condition, so the button's enabled/disabled state now matches where it actually leads.
+
+### Day/Night Cycle & Events
+
+Toggle **🌙 Enable Day/Night Cycle** in the Variables tab. This auto-creates two HUD stats: `TimeOfDay` (1–6) and `Day`. The six phases are: 1 Early morning, 2 Morning, 3 Noon, 4 Afternoon, 5 Evening, 6 Night. Choices then advance time (and roll over to the next day).
+
+Two kinds of automatic events live in the **Events** tab:
+
+- **📅 Scheduled Daily Events** — on a given Day number, either set a variable or force a jump to a block.
+- **⚡ Stat-Based Events** — when a stat condition becomes true (e.g. `HP <= 0`), either set a variable or jump to a block. Optionally **Fire Only Once**. Great for death/game-over triggers. Each stat event carries a stable internal ID, so "fire once" tracking stays correct even if you reorder or delete events.
+
+> Event-driven block jumps are protected by a loop guard: if events keep bouncing between blocks, play stops safely with a warning instead of freezing.
+
+### The RPG Engine
+
+If the story is an RPG, you get extra machinery:
+
+- **Custom Stats** — presets like `HP/MaxHP/Atk/Def/Dex/Agi`, plus add your own (Mana, Luck, Stamina, custom…). A stat named `MaxX` acts as the cap for stat `X` and is shown as `X / MaxX`.
+- **Items with modifiers** — mark an Item or Flag as an RPG modifier and give it stat bonuses:
+  - **Weapon / Armor** — equippable; their bonuses apply while equipped.
+  - **Consumable** — used up on use (e.g. a potion that restores HP).
+  - **Useable** — limited uses and/or a cooldown measured in time phases.
+  - **Flag "aura/passive"** — bonuses apply continuously while the flag is On.
+- **Backpack** during play has **Items / Equip / Stats** tabs to use, equip, and inspect everything. Effective stats are recalculated live (base + weapon + armor + passives, capped by any Max stat).
+
+### Author notes
+
+Each block has a collapsible **📝 Author notes (private)** field below the narrative text. Jot reminders to yourself here; notes are saved with the story but never shown to players.
+
+### Toolbar: Duplicate, Storyboard, Validate, Playtest, Undo/Redo
+
+- **⧉ Duplicate Block** — copies the current block (with a fresh name) so you can branch from a template.
+- **🗺️ Storyboard** — renders a Mermaid flowchart of every block and choice, grouped by folder. Scroll to zoom, drag to pan. Great for spotting dead ends and orphan blocks.
+- **✅ Validate** — scans the whole story and reports **errors** (choices/conditional paths/events pointing at missing blocks) and **warnings** (unreachable blocks, and blocks that have choices but none lead anywhere). Run it before sharing.
+- **▶️ Test Block** — instantly playtests starting from the block you're editing, with a "← Go Back" button to return to the editor. Runs against your in-memory story and **does not save**, so you can experiment freely.
+- **💡 Tips** — toggles the plain-language helper hints throughout the editor (remembered between sessions).
+- **Undo / Redo** — ↩️ / ↪️ buttons, or `Ctrl+Z` / `Ctrl+Y`. Keeps the last 10 edits.
+
+---
+
+## Playing a Story
+
+Click **▶ Play** on the dashboard:
+
+- **New Game** starts from your **⭐ start block** (or, if none is set, a block whose name contains "starting", else the first block).
+- **Continue** opens the save-slot list.
+- **Save slots** — up to **3** per story per user (the limit is one setting in `script.js`). Click **💾 Save Game** during play to write to a slot; you'll be asked which slot and warned before overwriting.
+
+During play you also get **↩ Back** (undo your last choice), **⟳ Restart** (start over from the beginning), and a clear **— THE END —** screen with a **Play Again** button when a block has no choices.
+
+The play screen shows the narrative text and choice buttons on the left, and a **🎒 Backpack** on the right displaying HUD variables (and, for RPGs, the Items/Equip/Stats tabs).
+
+---
+
+## Import, Export, Backup & Publish
+
+- **Export** (editor) downloads the current story as a JSON file named after its title.
+- **Import JSON** (dashboard) loads one story, or a whole library backup array; each imported story gets a fresh internal ID so it won't clobber existing ones.
+- **💾 Backup Library** (dashboard) downloads **every** story as a single dated JSON file. Since your work lives in the browser, keep backups — restore any time via Import JSON.
+- **🚀 Publish** (editor) downloads a single **self-contained `.html`** file: your finished game with a built-in player and no editor, login, or database. Share that one file and anyone can play it by opening it in a browser. Progress in a published game autosaves to that player's browser, with New Game / Continue on launch.
+
+---
+
+## Full Worked Example: "Room Game"
+
+`Room_Game.json` is a small, complete story that exercises most features. Here's both how it's built and how it plays.
+
+### The variables
+
+| Variable | Type | Default | HUD | Role |
+|----------|------|---------|-----|------|
+| `Strength` | stat | 0 | ✅ | Gates the "strong" path |
+| `Key` | item | 0 | ✅ | Unlocks Door A / lets you flee |
+| `Unlocked` | flag | 0 | — | Persist latch on the doors |
+| `KeyTaken` | flag | 0 | — | Hides the closet hint after pickup |
+| `NyarMar` | NPC | "Stranger" | — | The stranger, renameable |
+| `Stupidity` | stat | 10 | — | Flavor stat shown on the stats screen |
+
+The sample now has its **start block set to `starting room`** explicitly.
+
+### The map
+
+```
+starting room ──"Work Out" (Str≤6, +2 Str, max 3)──▶ Workout
+      │                                                  └─"Work Out Again" (Str≤6, +2 Str)
+      │                                                  └─"Get up" ──▶ starting room
+      ├─"Door A"  (needs Key)  ──▶ Office ──"Talk"──▶ Stranger ──▶ Stranger2 ──▶ Stats Screen
+      │                                                                              │
+      └─"Door B"  (needs Str≥6) ──▶ Closet ──"Investigate"──▶ Key Grabbed           ▼
+                                       └─(hint shown only if KeyTaken == Off)   FightorNo ──"Fight!"──▶ FightStart
+                                                                                                          ├─ "Big Dawg" (Str≥7) ──▶ ThatGuy (WIN)
+                                                                                                          │        else if Str≤6 ──▶ NotThatGuy (GAME OVER)
+                                                                                                          └─ "Run Away" (needs Key) ──▶ RanAway (GAME OVER)
+```
+
+### A sample playthrough
+
+1. **Starting room.** You wake up and see two doors. Door A is locked (needs a Key); Door B needs Strength ≥ 6. Neither is open yet, so you train.
+2. **Work Out** (up to 3 times, each +2 Strength). Getting to Door B's threshold requires Strength ≥ 6.
+3. Once strong enough, go through **Door B → Closet.** A conditional hint reads *"A small shiny item catches your attention"* — but only because `KeyTaken` is still Off.
+4. **Investigate item → Key Grabbed.** You gain a `Key`, and `KeyTaken` flips On, so the hint won't show again.
+5. Back at the starting room, **Door A** now opens (you have the Key) → **Office** → **Talk to Stranger.** You can rename the stranger (the `NyarMar` NPC) when prompted.
+6. Through the dialog you reach the **Stats Screen**, which prints your live `{Strength}` and `{Stupidity}`.
+7. Taking offense leads to **FightorNo → Fight! → FightStart.** Here the branching matters:
+   - **"Big Dawg the man!"** — if `Strength ≥ 7`, you win (**ThatGuy**). Otherwise the conditional path (`Strength ≤ 6`) sends you to **NotThatGuy** (game over).
+   - **"Run Away"** — only available if you hold a `Key`; leads to **RanAway** (a cowardly game over).
+
+This one story demonstrates: stat gating, item gating, flags as persist latches, conditional hint text, NPC renaming, variable injection, capped grinding via Max Uses / requirement caps, and conditional branching to different endings.

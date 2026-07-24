@@ -40,3 +40,112 @@ input, textarea, select { width: 100%; padding: 10px 12px; border: 1px solid #d1
 .modal-content { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
 .slot-row { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 10px; transition: 0.2s; }
 .slot-row:hover { border-color: #cbd5e1; background: #f1f5f9; }
+
+/* ===== Responsive layout (added) ===== */
+@media (max-width: 900px) {
+    .editor-container { grid-template-columns: 1fr; }
+    /* Let the block/variable sidebar sit above the editor instead of a fixed-height column */
+    .editor-container > .sidebar { height: auto !important; max-height: 60vh; }
+    .play-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+    .screen { padding: 20px 12px; }
+    .header-row { flex-wrap: wrap; gap: 12px; }
+    .editor-header-bar { flex-wrap: wrap; gap: 10px; }
+    .card { padding: 16px; }
+    .auth-card { margin: 40px auto !important; }
+    .choice-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ===================================================================
+   DESIGN REFRESH (added)
+   Consistent, modern form controls. The custom chevron replaces the
+   native arrow so long option text never overlaps it.
+=================================================================== */
+select {
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    padding-right: 30px !important;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 10px center !important;
+    background-size: 11px 11px !important;
+    cursor: pointer;
+    text-overflow: ellipsis;
+}
+select::-ms-expand { display: none; }
+
+/* Uniform control height so labels, inputs and dropdowns line up in a row */
+select,
+input[type="text"],
+input[type="number"],
+input[type="password"] {
+    min-height: 34px;
+    line-height: 1.25;
+}
+
+/* Give dropdowns inside the choice/condition editors room to breathe */
+.effect-row select,
+.condition-row select,
+.choice-grid select { min-width: 96px; }
+
+/* Blocks tab toolbar (Add Block / New Folder) */
+.blocks-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+.blocks-toolbar .btn-p,
+.blocks-toolbar .btn-s { flex: 1; }
+
+/* Slightly softer, more consistent cards and focus states */
+.card { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04); }
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--p) !important;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15) !important;
+}
+
+/* ===== Tips / help hints ===== */
+/* Hints are always in the DOM but hidden until the editor has the .tips-on class. */
+.cyoa-hint {
+    display: none;
+    font-size: 0.72rem;
+    color: #475569;
+    background: #eef2ff;
+    border-left: 3px solid #a5b4fc;
+    padding: 5px 9px;
+    border-radius: 4px;
+    margin: 5px 0;
+    line-height: 1.4;
+}
+.cyoa-hint::before { content: "💡 "; }
+#edit-screen.tips-on .cyoa-hint { display: block; }
+
+/* ===== Collapsible "Advanced options" on a choice ===== */
+details.adv-choice {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+details.adv-choice > summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #475569;
+    list-style: none;
+    padding: 4px 0;
+    user-select: none;
+}
+details.adv-choice > summary::-webkit-details-marker { display: none; }
+details.adv-choice > summary::before { content: "⚙️ "; }
+details.adv-choice > summary::after { content: " ▸"; color: #94a3b8; }
+details.adv-choice[open] > summary::after { content: " ▾"; }
+details.adv-choice[open] > summary { margin-bottom: 6px; border-bottom: 1px solid #f1f5f9; }
