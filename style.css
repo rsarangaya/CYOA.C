@@ -94,13 +94,22 @@ input[type="password"] {
 .blocks-toolbar {
     display: flex;
     gap: 8px;
-    margin-bottom: 15px;
     position: sticky;
     top: 0;
     z-index: 10;
+    background: #1e293b;              /* matches the sidebar so list items can't show through */
+    margin: -15px -15px 12px;         /* cover the scroll area's 15px padding on all sides */
+    padding: 15px 15px 12px;
 }
 .blocks-toolbar .btn-p,
-.blocks-toolbar .btn-s { flex: 1; }
+.blocks-toolbar .btn-s {
+    flex: 1;
+    min-width: 0;                     /* shrink to fit; no clipping under the scrollbar */
+    padding: 8px 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 /* Slightly softer, more consistent cards and focus states */
 .card { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04); }
